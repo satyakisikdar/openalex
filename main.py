@@ -1,8 +1,8 @@
 import sys
 sys.path.extend(['../', './'])
 
-from openalex.src.entities import Authors
-from openalex.src.utils import Paths
+from src.entities import Authors
+from src.utils import Paths
 
 
 def main():

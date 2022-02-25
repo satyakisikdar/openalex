@@ -9,10 +9,12 @@ from typing import List, Dict
 import ujson as json
 from box import Box
 from joblib import Parallel, delayed
+import pandas as pd
 
-from openalex.src.globals import path_type, NAME_LEN, ID_LEN, LIST_LEN, URL_LEN
-from openalex.src.utils import Paths, read_manifest, read_gz_in_chunks, parallel_async, write_parquet
+from src.globals import path_type, NAME_LEN, ID_LEN, LIST_LEN, URL_LEN
+from src.utils import Paths, read_manifest, read_gz_in_chunks, parallel_async, write_parquet, ensure_dir
 from tqdm.auto import tqdm
+
 
 class Entities:
     """
@@ -27,11 +29,12 @@ class Entities:
         self.manifest = read_manifest(kind=self.kind, paths=self.paths)
         self.finished_files_path = self.paths.temp_dir / f'{self.kind}.txt'
         self.finished_files: List[path_type] = self.get_finished_files()  # stores the list of finished entities
+        self.dtypes = {}  # dtype dictionary
         return
 
     def process(self, num_workers: int):
         """
-        Process files from the manifest
+        Process entries from the manifest
         :return:
         """
         write = True
@@ -42,7 +45,7 @@ class Entities:
                     tqdm.write(f'Skipping {entry.filename.stem}!')
                 tqdm.write(f'Processing {entry.filename!r}')
                 pbar.set_description(f'{self.kind!r} {entry.filename.stem!r}')
-                self.process_jsons(entry=entry, num_workers=num_workers)
+                self.process_entry(entry=entry)
                 pbar.update(1)
 
                 if write:  # write to finished files dir
@@ -52,18 +55,27 @@ class Entities:
         return
 
     @abc.abstractmethod
-    def parse_jsons(self, jsons: List[Dict]):
+    def process_entry(self, entry: Box):
         """
-        Parse JSONs and write to parquet
+        Process individual entries in the manifest
         :return:
         """
-        pass
+        jsons_per_chunk = 100_000
+        with tqdm(total=entry.count, ncols=100, colour='blue', position=2) as pbar:
+            for chunk_id, chunk in enumerate(read_gz_in_chunks(fname=entry.filename, jsons_per_chunk=jsons_per_chunk,
+                                                               num_lines=entry.count)):
+                pbar.set_description(f'chunk: {chunk_id:,}')
+                rows_dict = self.process_jsons(jsons=chunk)  # keys are table names, vals are list of dicts
+                for table_name, rows in rows_dict.items():
+                    self.write_to_disk(table_name=table_name, updated_date=entry.updated_date, rows=rows, verbose=True)
+                pbar.update(len(chunk))
+
+        return
 
     @abc.abstractmethod
-    def process_jsons(self, entry: Dict, num_workers: int):
+    def process_jsons(self, jsons: Dict):
         """
         Process JSONs and write to a parquet file
-        :param num_workers:
         :return:
         """
         pass
@@ -226,13 +238,42 @@ class Entities:
         return schema[self.kind]
 
     def get_finished_files(self) -> List[path_type]:
-        if not self.finished_files_path.exists():
-            finished_files = []
-        else:
-            with open(self.finished_files_path) as fp:
-                finished_files = fp.read().split('\n')
-            finished_files.remove('')  # delete the stray blank string
-        return finished_files
+        # finished_files = []
+        # if not self.finished_files_path.exists():
+        #     finished_files = []
+        # else:
+        #     with open(self.finished_files_path) as fp:
+        #         finished_files = fp.read().split('\n')
+        #     finished_files.remove('')  # delete the stray blank string
+        return []
+
+    def write_to_disk(self, table_name: str, updated_date: str, rows: List, fmt: str = 'parquet', verbose: bool = False,
+                      **args):
+        """
+        Write list of rows to path. Formats could be parquet or hdf5.
+        Path is obtained from Paths object processed directory
+        """
+
+        df = pd.DataFrame(rows)[self.dtypes[table_name].keys()]
+        df = df.astype(dtype=self.dtypes[table_name])
+        
+        if fmt == 'hdf' or fmt == 'hdf5':
+            ext = 'h5'
+            min_itemsize = self.min_sizes[table_name]
+            writer_fn = pd.DataFrame.to_hdf
+            fun_args = dict()
+        else:  # parquet
+            ext = '.pq'
+            writer_fn = pd.DataFrame.to_parquet
+            fun_args = dict(engine='fastparquet')
+
+        path = self.paths.processed_dir / table_name / f'{updated_date}{ext}'
+        print(path)
+        ensure_dir(path.parents[0], recursive=True)  # makes sure the parent dirs exist
+        if verbose:
+            tqdm.write(f'Writing {table_name!r} {len(df):,} rows to {path!r}')
+        writer_fn(df, path=path, **fun_args, **args)
+        return
 
 
 class Authors(Entities):
@@ -257,50 +298,18 @@ class Authors(Entities):
                                      'display_name_alternatives': LIST_LEN*2,
                                      'last_known_institution': ID_LEN, 'works_api_url': URL_LEN, 'updated_date': ID_LEN}
 
-        self.dtypes['ids'] = {'author_id': 'object', 'openalex': 'object', 'orcid': 'object', 'scopus': 'object',
+        self.dtypes['authors_ids'] = {'author_id': 'object', 'openalex': 'object', 'orcid': 'object', 'scopus': 'object',
                               'twitter': 'object', 'wikipedia': 'object', 'mag': 'object'}
-        self.min_sizes['ids'] = {'author_id': ID_LEN, 'openalex': ID_LEN, 'orcid': ID_LEN, 'scopus': ID_LEN,
+        self.min_sizes['authors_ids'] = {'author_id': ID_LEN, 'openalex': ID_LEN, 'orcid': ID_LEN, 'scopus': ID_LEN,
                                  'twitter': ID_LEN, 'wikipedia': ID_LEN, 'mag': ID_LEN}
 
-        self.dtypes['counts_by_year'] = {'author_id': 'object', 'year': 'int', 'works_count': 'int',
+        self.dtypes['authors_counts_by_year'] = {'author_id': 'object', 'year': 'int', 'works_count': 'int',
                                          'cited_by_count': 'int'}
-        self.min_sizes['counts_by_year'] = {'author_id': ID_LEN}
+        self.min_sizes['authors_counts_by_year'] = {'author_id': ID_LEN}
 
         return
 
-    def flatten(self):
-        """
-        # def flatten_authors():
-        #     for author_json in authors_jsonl:
-        #         if not author_json.strip():
-        #             continue
-        #
-        #         author = json.loads(author_json)
-        #
-        #         if not (author_id := author.get('id')):
-        #             continue
-        #
-        #         # authors
-        #         author['display_name_alternatives'] = json.dumps(author.get('display_name_alternatives'))
-        #         author['last_known_institution'] = (author.get('last_known_institution') or {}).get('id')
-        #         authors_writer.writerow(author)
-        #
-        #         # ids
-        #         if author_ids := author.get('ids'):
-        #             author_ids['author_id'] = author_id
-        #             ids_writer.writerow(author_ids)
-        #
-        #         # counts_by_year
-        #         if counts_by_year := author.get('counts_by_year'):
-        #             for count_by_year in counts_by_year:
-        #                 count_by_year['author_id'] = author_id
-        #                 counts_by_year_writer.writerow(count_by_year)
-        # files_done += 1
-        # if FILES_PER_ENTITY and files_done >= FILES_PER_ENTITY:
-        #     break
-        """
-
-    def parse_jsons(self, jsons: List[Dict]):
+    def process_jsons(self, jsons: List[Dict]):
         author_rows, ids_rows, yearly_counts_rows = [], [], []
         author_cols, id_cols, yearly_counts_cols = self.schema.authors.columns, self.schema.ids.columns, self.schema.counts_by_year.columns
 
@@ -326,34 +335,7 @@ class Authors(Entities):
                     count_row = {col: count_by_year.get(col, '') for col in yearly_counts_cols}
                     yearly_counts_rows.append(count_row)
 
-        write_parquet(rows=author_rows, col_names=author_cols, dtypes=self.dtypes['authors'],
-                      min_size=self.min_sizes['authors'], path=self.paths.processed_dir / 'authors.h5')
-
-        write_parquet(rows=ids_rows, col_names=id_cols, dtypes=self.dtypes['ids'], min_size=self.min_sizes['ids'],
-                      path=self.paths.processed_dir / 'authors_ids.h5')
-
-        write_parquet(rows=yearly_counts_rows, col_names=yearly_counts_cols, dtypes=self.dtypes['counts_by_year'],
-                      min_size=self.min_sizes['counts_by_year'],
-                      path=self.paths.processed_dir / 'authors_counts_by_year.h5')
-        return
-
-    def process_jsons(self, entry: Box, num_workers: int):
-        jsons_per_chunk = 200_000
-        with tqdm(total=entry.count, ncols=100, colour='blue', position=2) as pbar:
-            for chunk_id, chunk in enumerate(read_gz_in_chunks(fname=entry.filename, jsons_per_chunk=jsons_per_chunk,
-                                                                 num_lines=entry.count)):
-                pbar.set_description(f'chunk: {chunk_id:,}')
-                self.parse_jsons(jsons=chunk)
-                pbar.update(len(chunk))
-
-            # Parallel(n_jobs=num_workers, backend='multiprocessing')(
-            #     delayed(self.parse_jsons)(json_lines) for json_lines in chunks
-            # )
-            # break
-            # print(len(chunks))
-            # pbar.update(jsons_per_chunk * num_workers)
-
-        return
+        return {'authors': author_rows, 'authors_ids': ids_rows, 'authors_counts_by_year': yearly_counts_rows}
 
 
 class Works(Entities):
@@ -361,7 +343,7 @@ class Works(Entities):
         super().__init__(kind='works', paths=paths)
         return
 
-    def process_jsons(self, num_workers):
+    def process_jsons(self, jsons):
         pass
 
 
@@ -370,7 +352,7 @@ class Institutions(Entities):
         super().__init__(kind='institutions', paths=paths)
         return
 
-    def process_jsons(self, num_workers):
+    def process_jsons(self, jsons):
         pass
 
 
@@ -379,5 +361,5 @@ class Concepts(Entities):
         super().__init__(kind='concepts', paths=paths)
         return
 
-    def process_jsons(self, num_workers):
+    def process_jsons(self, jsons):
         pass

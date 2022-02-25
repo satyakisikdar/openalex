@@ -8,9 +8,9 @@ from pathlib import Path
 import gzip
 from tqdm.auto import tqdm
 from box import Box
-from openalex.src.globals import path_type
+from src.globals import path_type
 import ujson as json
-from typing import List, Dict
+from typing import List, Dict, Union
 
 
 class Paths:
@@ -30,8 +30,9 @@ def read_manifest(kind: str, paths: Paths) -> Box:
 
     entries = []
     for raw_entry in raw_data.entries:
-        entry = Box({'filename': paths.snapshot_dir / raw_entry.url.replace('s3://openalex/data/', ''),
-                     'count': raw_entry.meta.record_count, 'updated_date': raw_entry.url.split('/')[4]})
+        filename = paths.snapshot_dir / raw_entry.url.replace('s3://openalex/data/', '')
+        entry = Box({'filename': filename, 'kind': kind,
+                     'count': raw_entry.meta.record_count, 'updated_date': '_'.join(filename.parts[-2:]).replace('.gz', '')})
         entries.append(entry)
     data['entries'] = entries
     return data
@@ -103,8 +104,15 @@ def parallel_async(func, args, num_workers: int):
     return results
 
 
-# if __name__ == '__main__':
-#     for chunk in read_gz_in_chunks('/N/project/openalex/ssikdar/temp/toy.txt.gz',  jsons_per_chunk=100,
-#                                    num_lines=7):
-#         print(chunk)
-#         print()
+def ensure_dir(path: path_type, recursive: bool = False, exist_ok: bool = True) -> None:
+    path = Path(path)
+    if not path.exists():
+        # ColorPrint.print_blue(f'Creating dir: {path!r}')
+        path.mkdir(parents=recursive, exist_ok=exist_ok)
+    return
+
+
+if __name__ == '__main__':
+    paths = Paths()
+    data = read_manifest(kind='authors', paths=paths)
+    data
