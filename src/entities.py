@@ -76,7 +76,7 @@ class Entities:
                     pbar.update(1)
 
         for table_name, rows in rows_dict.items():
-            self.write_to_disk(table_name=table_name, updated_date=entry.updated_date, rows=rows, verbose=True)
+            self.write_to_disk(table_name=table_name, updated_date=entry.updated_date, rows=rows, verbose=False)
         return rows
 
     @abc.abstractmethod
@@ -723,5 +723,122 @@ class Concepts(Entities):
         super().__init__(kind='concepts', paths=paths)
         return
 
-    def process_json(self, jsons):
-        pass
+    def process_json(self, concept_json: Dict):
+        concepts_rows, ids_rows, ancestor_rows, counts_rows, related_rows = [], [], [], [], []
+        concepts_cols = self.schema.concepts.columns
+        if not (concept_id := concept_json.get('id')):
+            return {'concepts': concepts_rows, 'concepts_ids': ids_rows, 'concepts_ancestors': ancestor_rows,
+                    'concepts_counts_by_year': counts_rows, 'concepts_related_concepts': related_rows}
+
+        # concepts
+        concepts_rows.append({col: concept_json.get(col) for col in concepts_cols})
+
+        # ids
+        if concept_ids := concept_json.get('ids'):
+            concept_ids['concept_id'] = concept_id
+            concept_ids['umls_aui'] = json.dumps(concept_ids.get('umls_aui'))
+            concept_ids['umls_cui'] = json.dumps(concept_ids.get('umls_cui'))
+            ids_rows.append(concept_ids)
+
+        # ancestors
+        if ancestors := concept_json.get('ancestors'):
+            for ancestor in ancestors:
+                if ancestor_id := ancestor.get('id'):
+                    ancestor_rows.append({
+                        'concept_id': concept_id,
+                        'ancestor_id': ancestor_id
+                    })
+
+        # counts by year
+        if counts_by_year := concept_json.get('counts_by_year'):
+            for count_by_year in counts_by_year:
+                count_by_year['concept_id'] = concept_id
+                counts_rows.append(count_by_year)
+
+        # related concepts
+        if related_concepts := concept_json.get('related_concepts'):
+            for related_concept in related_concepts:
+                if related_concept_id := related_concept.get('id'):
+                    related_rows.append({
+                        'concept_id': concept_id,
+                        'related_concept_id': related_concept_id,
+                        'score': related_concept.get('score')
+                    })
+
+        return {'concepts': concepts_rows, 'concepts_ids': ids_rows, 'concepts_ancestors': ancestor_rows,
+                'concepts_counts_by_year': counts_rows, 'concepts_related_concepts': related_rows}
+
+    def flatten(self):
+        """
+        for concept_json in concepts_jsonl:
+            if not concept_json.strip():
+                continue
+
+            concept = json.loads(concept_json)
+
+            if not (concept_id := concept.get('id')) or concept_id in seen_concept_ids:
+                continue
+
+            seen_concept_ids.add(concept_id)
+
+            concepts_writer.writerow(concept)
+
+            if concept_ids := concept.get('ids'):
+                concept_ids['concept_id'] = concept_id
+                concept_ids['umls_aui'] = json.dumps(concept_ids.get('umls_aui'))
+                concept_ids['umls_cui'] = json.dumps(concept_ids.get('umls_cui'))
+                ids_writer.writerow(concept_ids)
+
+            if ancestors := concept.get('ancestors'):
+                for ancestor in ancestors:
+                    if ancestor_id := ancestor.get('id'):
+                        ancestors_writer.writerow({
+                            'concept_id': concept_id,
+                            'ancestor_id': ancestor_id
+                        })
+
+            if counts_by_year := concept.get('counts_by_year'):
+                for count_by_year in counts_by_year:
+                    count_by_year['concept_id'] = concept_id
+                    counts_by_year_writer.writerow(count_by_year)
+
+            if related_concepts := concept.get('related_concepts'):
+                for related_concept in related_concepts:
+                    if related_concept_id := related_concept.get('id'):
+                        related_concepts_writer.writerow({
+                            'concept_id': concept_id,
+                            'related_concept_id': related_concept_id,
+                            'score': related_concept.get('score')
+                        })
+        """
+
+    def init_dtype_dicts(self):
+        self.dtypes['concepts'] = {
+            'id': 'string', 'wikidata': 'string', 'display_name': 'string', 'level': 'Int64', 'description': 'string',
+            'works_count': 'Int64', 'cited_by_count': 'Int64', 'image_url': 'string',
+            'image_thumbnail_url': 'string', 'works_api_url': 'string', 'updated_date': 'string'
+        }
+
+        self.dtypes['concepts_ancestors'] = {
+            'concept_id': 'string', 'ancestor_id': 'string'
+        }
+
+        self.dtypes['concepts_counts_by_year'] = {
+            'concept_id': 'string', 'year': 'Int64', 'works_count': 'Int64', 'cited_by_count': 'Int64'
+        }
+
+        self.dtypes['concepts_ids'] = {
+            'concept_id': 'string', 'openalex': 'string', 'wikidata': 'string', 'wikipedia': 'string',
+            'umls_aui': 'string', 'umls_cui': 'string', 'mag': 'string'
+        }
+
+        self.dtypes['concepts_related_concepts'] = {
+            'concept_id': 'string', 'related_concept_id': 'string', 'score': 'float'
+        }
+        return
+
+
+class Venues(Entities):
+    def __init__(self, kind: str, paths: Paths):
+        super().__init__(kind='venues', paths=paths)
+        return
