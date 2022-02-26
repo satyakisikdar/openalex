@@ -6,8 +6,8 @@ import gzip
 from pathlib import Path
 from typing import List, Dict
 
+import orjson as json
 import pandas as pd
-import ujson as json
 from box import Box
 from joblib import Parallel, delayed
 from tqdm.auto import tqdm
@@ -30,29 +30,29 @@ class Entities:
         self.finished_files_path = self.paths.temp_dir / f'{self.kind}.txt'
         self.finished_files: List[path_type] = self.get_finished_files()  # stores the list of finished entities
         self.dtypes = {}  # dtype dictionary
+        self.init_dtype_dicts()
         return
 
-    def process(self, num_workers: int):
+    @abc.abstractmethod
+    def init_dtype_dicts(self):
+        pass
+
+    def process(self, num_workers: int, max_len=None):
         """
         Process entries from the manifest
         :return:
         """
-        entries = self.manifest.entries[: 50]
+        if max_len is not None:
+            entries = self.manifest.entries[: max_len]
+        else:
+            entries = self.manifest.entries
 
         Parallel(backend='multiprocessing', n_jobs=num_workers)(
             delayed(self.process_entry)(entry) for entry in entries
         )
 
-        # with tqdm(total=len(self.manifest.entries), unit='entries', colour='green', ncols=100, miniters=0) as pbar:
-        #     for i, entry in enumerate(self.manifest.entries):
-        #         pbar.set_description(f'{self.kind!r} {entry.filename.stem!r}')
-        #         self.process_entry(entry=entry)
-        #         pbar.update(1)
-        #         if i == 1:
-        #             break
         return
 
-    @abc.abstractmethod
     def process_entry(self, entry: Box) -> None:
         """
         Process individual entries in the manifest
@@ -91,7 +91,7 @@ class Entities:
         return self.manifest.len
 
     def __str__(self) -> str:
-        st = f'<{self.kind} total entities: {len(self):,}>'
+        st = f'<{self.kind!r} entries: {len(self.manifest.entries):,} total records: {len(self):,}>'
         return st
 
     def get_schema(self) -> Box:
@@ -255,7 +255,7 @@ class Entities:
         Path is obtained from Paths object processed directory
         """
 
-        df = pd.DataFrame(rows)  # [self.dtypes[table_name].keys()]  # problem!
+        df = pd.DataFrame(rows, columns=self.dtypes[table_name])
 
         df = df.astype(dtype=self.dtypes[table_name])
 
@@ -270,7 +270,6 @@ class Entities:
             fun_args = dict(engine='pyarrow')
 
         path = self.paths.processed_dir / table_name / f'{updated_date}{ext}'
-        print(path)
         ensure_dir(path.parents[0], recursive=True)  # makes sure the parent dirs exist
         if verbose:
             tqdm.write(f'Writing {table_name!r} {len(df):,} rows to {path}')
@@ -281,7 +280,6 @@ class Entities:
 class Authors(Entities):
     def __init__(self, paths: Paths):
         super().__init__(kind='authors', paths=paths)
-        self.dtypes = {}  # dictionary of data types for pandas dataframes
         self.min_sizes = {}  # dictionary of min item sizes for string columns for HDF5
         self.init_dtype_dicts()
         return
@@ -343,19 +341,381 @@ class Authors(Entities):
 class Works(Entities):
     def __init__(self, paths: Paths):
         super().__init__(kind='works', paths=paths)
+        self.init_dtype_dicts()
         return
 
-    def process_json(self, jsons):
-        pass
+    def process_json(self, work_json):
+        work_cols, host_venue_cols, alt_host_venue_cols, auths_cols, concepts_cols, ids_cols, mesh_cols, ref_cols, \
+        rel_cols = self.schema.works.columns, self.schema.host_venues.columns, self.schema.alternate_host_venues.columns, \
+                   self.schema.authorships.columns, self.schema.concepts.columns, self.schema.ids.columns, \
+                   self.schema.mesh.columns, self.schema.referenced_works.columns, self.schema.related_works.columns
+
+        work_rows, host_venue_rows, alt_host_venue_rows, auths_rows, concepts_rows, ids_rows, mesh_rows, ref_rows, \
+        rel_rows = [], [], [], [], [], [], [], [], []
+
+        if not (work_id := work_json.get('id')):
+            return {'works': work_rows, 'works_host_venues': host_venue_rows,
+                    'works_alternate_host_venues': alt_host_venue_rows, 'works_authorships': auths_rows,
+                    'works_concepts': concepts_rows, 'works_ids': ids_rows, 'works_mesh': mesh_rows,
+                    'works_referenced_works': ref_rows, 'works_related_works': rel_rows}
+
+        if (abstract := work_json.get('abstract_inverted_index')) is not None:
+            work_json['abstract_inverted_index'] = json.dumps(abstract)
+        work_row = {col: work_json.get(col, '') for col in work_cols}
+        work_rows.append(work_row)
+
+        # host venues
+        if host_venue := (work_json.get('host_venue') or {}):
+            if host_venue_id := host_venue.get('id'):
+                host_venue_rows.append({
+                    'work_id': work_id,
+                    'venue_id': host_venue_id,
+                    'url': host_venue.get('url', ''),
+                    'is_oa': host_venue.get('is_oa', ''),
+                    'version': host_venue.get('version', ''),
+                    'license': host_venue.get('license', ''),
+                })
+
+        # alt host venues
+        if alternate_host_venues := work_json.get('alternate_host_venues'):
+            for alternate_host_venue in alternate_host_venues:
+                if venue_id := alternate_host_venue.get('id'):
+                    alt_host_venue_rows.append({
+                        'work_id': work_id,
+                        'venue_id': venue_id,
+                        'url': alternate_host_venue.get('url', ''),
+                        'is_oa': alternate_host_venue.get('is_oa', ''),
+                        'version': alternate_host_venue.get('version', ''),
+                        'license': alternate_host_venue.get('license', ''),
+                    })
+
+        # authorships
+        if authorships := work_json.get('authorships'):
+            for authorship in authorships:
+                if author_id := authorship.get('author', {}).get('id'):
+                    institutions = authorship.get('institutions')
+                    institution_ids = [i.get('id') for i in institutions]
+                    institution_ids = [i for i in institution_ids if i]
+                    institution_ids = institution_ids or [None]
+
+                    for institution_id in institution_ids:
+                        auths_rows.append({
+                            'work_id': work_id,
+                            'author_position': authorship.get('author_position', ''),
+                            'author_id': author_id,
+                            'institution_id': institution_id,
+                            'raw_affiliation_string': authorship.get('raw_affiliation_string', ''),
+                        })
+
+        # concepts
+        for concept in work_json.get('concepts'):
+            if concept_id := concept.get('id'):
+                concepts_rows.append({
+                    'work_id': work_id,
+                    'concept_id': concept_id,
+                    'score': concept.get('score'),
+                })
+
+        # ids
+        if ids := work_json.get('ids'):
+            ids['work_id'] = work_id
+            ids_rows.append(ids)
+
+        # mesh
+        for mesh in work_json.get('mesh'):
+            mesh['work_id'] = work_id
+            mesh_rows.append(mesh)
+
+        # referenced_works
+        for referenced_work in work_json.get('referenced_works'):
+            if referenced_work:
+                ref_rows.append({
+                    'work_id': work_id,
+                    'referenced_work_id': referenced_work
+                })
+
+        # related_works
+        for related_work in work_json.get('related_works'):
+            if related_work:
+                rel_rows.append({
+                    'work_id': work_id,
+                    'related_work_id': related_work
+                })
+
+        return {'works': work_rows, 'works_host_venues': host_venue_rows,
+                'works_alternate_host_venues': alt_host_venue_rows, 'works_authorships': auths_rows,
+                'works_concepts': concepts_rows, 'works_ids': ids_rows, 'works_mesh': mesh_rows,
+                'works_referenced_works': ref_rows, 'works_related_works': rel_rows}
+
+    def init_dtype_dicts(self):
+        self.dtypes['works'] = {
+            'id': 'string', 'doi': 'string', 'title': 'string', 'display_name': 'string', 'publication_year': 'Int64',
+            'publication_date': 'string', 'type': 'string', 'cited_by_count': 'Int64',
+            'is_retracted': 'bool', 'is_paratext': 'bool', 'cited_by_api_url': 'string',
+            'abstract_inverted_index': 'string'}
+
+        self.dtypes['works_host_venues'] = {
+            'work_id': 'string', 'venue_id': 'string', 'url': 'string', 'is_oa': 'bool', 'version': 'string',
+            'license': 'string'}
+
+        self.dtypes['works_ids'] = {
+            'work_id': 'string', 'openalex': 'string', 'doi': 'string', 'mag': 'string', 'pmid': 'string',
+            'pmcid': 'string'
+        }
+
+        self.dtypes['works_alternate_host_venues'] = {
+            'work_id': 'string', 'venue_id': 'string', 'url': 'string', 'is_oa': 'bool', 'version': 'string',
+            'license': 'string'}
+
+        self.dtypes['works_authorships'] = {
+            'work_id': 'string', 'author_position': 'string', 'author_id': 'string', 'institution_id': 'string',
+            'raw_affiliation_string': 'string'
+        }
+
+        self.dtypes['works_concepts'] = {
+            'work_id': 'string', 'concept_id': 'string', 'score': 'float'
+        }
+
+        self.dtypes['works_mesh'] = {
+            'work_id': 'string', 'descriptor_ui': 'string', 'descriptor_name': 'string', 'qualifier_ui': 'string',
+            'qualifier_name': 'string', 'is_major_topic': 'bool'
+        }
+
+        self.dtypes['works_referenced_works'] = {
+            'work_id': 'string', 'referenced_work_id': 'string'
+        }
+
+        self.dtypes['works_related_works'] = {
+            'work_id': 'string', 'related_work_id': 'string'
+        }
+        return
+
+    def flatten(self):
+        """
+    if not (work_id := work.get('id')):
+        continue
+
+    # works
+    if (abstract := work.get('abstract_inverted_index')) is not None:
+        work['abstract_inverted_index'] = json.dumps(abstract)
+
+    works_writer.writerow(work)
+
+    # host_venues
+    if host_venue := (work.get('host_venue') or {}):
+        if host_venue_id := host_venue.get('id'):
+            host_venues_writer.writerow({
+                'work_id': work_id,
+                'venue_id': host_venue_id,
+                'url': host_venue.get('url'),
+                'is_oa': host_venue.get('is_oa'),
+                'version': host_venue.get('version'),
+                'license': host_venue.get('license'),
+            })
+
+    # alternate_host_venues
+    if alternate_host_venues := work.get('alternate_host_venues'):
+        for alternate_host_venue in alternate_host_venues:
+            if venue_id := alternate_host_venue.get('id'):
+                alternate_host_venues_writer.writerow({
+                    'work_id': work_id,
+                    'venue_id': venue_id,
+                    'url': alternate_host_venue.get('url'),
+                    'is_oa': alternate_host_venue.get('is_oa'),
+                    'version': alternate_host_venue.get('version'),
+                    'license': alternate_host_venue.get('license'),
+                })
+
+    # authorships
+    if authorships := work.get('authorships'):
+        for authorship in authorships:
+            if author_id := authorship.get('author', {}).get('id'):
+                institutions = authorship.get('institutions')
+                institution_ids = [i.get('id') for i in institutions]
+                institution_ids = [i for i in institution_ids if i]
+                institution_ids = institution_ids or [None]
+
+                for institution_id in institution_ids:
+                    authorships_writer.writerow({
+                        'work_id': work_id,
+                        'author_position': authorship.get('author_position'),
+                        'author_id': author_id,
+                        'institution_id': institution_id,
+                        'raw_affiliation_string': authorship.get('raw_affiliation_string'),
+                    })
+
+    # biblio
+    if biblio := work.get('biblio'):
+        biblio['work_id'] = work_id
+        biblio_writer.writerow(biblio)
+
+    # concepts
+    for concept in work.get('concepts'):
+        if concept_id := concept.get('id'):
+            concepts_writer.writerow({
+                'work_id': work_id,
+                'concept_id': concept_id,
+                'score': concept.get('score'),
+            })
+
+    # ids
+    if ids := work.get('ids'):
+        ids['work_id'] = work_id
+        ids_writer.writerow(ids)
+
+    # mesh
+    for mesh in work.get('mesh'):
+        mesh['work_id'] = work_id
+        mesh_writer.writerow(mesh)
+
+    # open_access
+    if open_access := work.get('open_access'):
+        open_access['work_id'] = work_id
+        open_access_writer.writerow(open_access)
+
+    # referenced_works
+    for referenced_work in work.get('referenced_works'):
+        if referenced_work:
+            referenced_works_writer.writerow({
+                'work_id': work_id,
+                'referenced_work_id': referenced_work
+            })
+
+    # related_works
+    for related_work in work.get('related_works'):
+        if related_work:
+            related_works_writer.writerow({
+                'work_id': work_id,
+                'related_work_id': related_work
+            })
+
+files_done += 1
+if FILES_PER_ENTITY and files_done >= FILES_PER_ENTITY:
+break
+        """
 
 
 class Institutions(Entities):
     def __init__(self, paths: Paths):
         super().__init__(kind='institutions', paths=paths)
+        self.init_dtype_dicts()
         return
 
-    def process_json(self, jsons):
-        pass
+    def flatten(self):
+        """
+        for institution_json in institutions_jsonl:
+            if not institution_json.strip():
+                continue
+
+            institution = json.loads(institution_json)
+
+            if not (institution_id := institution.get('id')) or institution_id in seen_institution_ids:
+                continue
+
+            # institutions
+            institution['display_name_acroynyms'] = json.dumps(institution.get('display_name_acroynyms'))
+            institution['display_name_alternatives'] = json.dumps(institution.get('display_name_alternatives'))
+            institutions_writer.writerow(institution)
+
+            # ids
+            if institution_ids := institution.get('ids'):
+                institution_ids['institution_id'] = institution_id
+                ids_writer.writerow(institution_ids)
+
+            # geo
+            if institution_geo := institution.get('geo'):
+                institution_geo['institution_id'] = institution_id
+                geo_writer.writerow(institution_geo)
+
+            # associated_institutions
+            if associated_institutions := institution.get(
+                'associated_institutions', institution.get('associated_insitutions')  # typo in api
+            ):
+                for associated_institution in associated_institutions:
+                    if associated_institution_id := associated_institution.get('id'):
+                        associated_institutions_writer.writerow({
+                            'institution_id': institution_id,
+                            'associated_institution_id': associated_institution_id,
+                            'relationship': associated_institution.get('relationship')
+                        })
+
+            # counts_by_year
+            if counts_by_year := institution.get('counts_by_year'):
+                for count_by_year in counts_by_year:
+                    count_by_year['institution_id'] = institution_id
+                    counts_by_year_writer.writerow(count_by_year)
+
+        """
+
+    def process_json(self, inst_json: Dict):
+        inst_rows, ids_rows, geo_rows, assoc_rows, counts_rows = [], [], [], [], []
+        inst_cols = self.schema.institutions.columns
+        if not (institution_id := inst_json.get('id')):
+            return {'institutions': inst_rows, 'institutions_ids': ids_rows, 'institutions_geo': geo_rows,
+                    'institutions_associated_institutions': geo_rows, 'institutions_counts_by_year': counts_rows}
+
+        # institutions
+        inst_json['display_name_acroynyms'] = json.dumps(inst_json.get('display_name_acroynyms'))
+        inst_json['display_name_alternatives'] = json.dumps(inst_json.get('display_name_alternatives'))
+        inst_rows.append({col: inst_json.get(col) for col in inst_cols})
+
+        # ids
+        if institution_ids := inst_json.get('ids'):
+            institution_ids['institution_id'] = institution_id
+            ids_rows.append(institution_ids)
+
+        # geo
+        if institution_geo := inst_json.get('geo'):
+            institution_geo['institution_id'] = institution_id
+            geo_rows.append(institution_geo)
+
+            # associated_institutions
+            if associated_institutions := inst_json.get(
+                    'associated_institutions', inst_json.get('associated_insitutions')  # typo in api
+            ):
+                for associated_institution in associated_institutions:
+                    if associated_institution_id := associated_institution.get('id'):
+                        assoc_rows.append({
+                            'institution_id': institution_id,
+                            'associated_institution_id': associated_institution_id,
+                            'relationship': associated_institution.get('relationship')
+                        })
+
+            # counts_by_year
+            if counts_by_year := inst_json.get('counts_by_year'):
+                for count_by_year in counts_by_year:
+                    count_by_year['institution_id'] = institution_id
+                    counts_rows.append(count_by_year)
+
+        return {'institutions': inst_rows, 'institutions_ids': ids_rows, 'institutions_geo': geo_rows,
+                    'institutions_associated_institutions': geo_rows, 'institutions_counts_by_year': counts_rows}
+
+    def init_dtype_dicts(self):
+        self.dtypes['institutions'] = {
+            'id': 'string', 'ror': 'string', 'display_name': 'string', 'country_code': 'string', 'type': 'string',
+            'homepage_url': 'string', 'image_url': 'string', 'image_thumbnail_url': 'string',
+            'display_name_acroynyms': 'string', 'display_name_alternatives': 'string', 'works_count': 'Int64',
+            'cited_by_count': 'Int64', 'works_api_url': 'string', 'updated_date': 'string'
+        }
+
+        self.dtypes['institutions_ids'] = {
+            'institution_id': 'string', 'openalex': 'string', 'ror': 'string', 'grid': 'string',
+            'wikipedia': 'string', 'wikidata': 'string', 'mag': 'string'
+        }
+
+        self.dtypes['institutions_geo'] = {
+            'institution_id': 'string', 'city': 'string', 'geonames_city_id': 'string', 'region': 'string',
+            'country_code': 'string', 'country': 'string', 'latitude': 'float', 'longitude': 'float'
+        }
+
+        self.dtypes['institutions_associated_institutions'] = {
+            'institution_id': 'string', 'associated_institution_id': 'string', 'relationship': 'string'
+        }
+
+        self.dtypes['institutions_counts_by_year'] = {
+            'institution_id': 'string', 'year': 'Int64', 'works_count': 'Int64', 'cited_by_count': 'Int64'
+        }
+        return
 
 
 class Concepts(Entities):
