@@ -839,6 +839,66 @@ class Concepts(Entities):
 
 
 class Venues(Entities):
-    def __init__(self, kind: str, paths: Paths):
+    def process_json(self, venue_json: Dict):
+        venue_rows, ids_rows, counts_rows = [], [], []
+        venue_cols = self.schema.venues.columns
+
+        if not (venue_id := venue_json.get('id')):
+            return {'venues': venue_rows, 'venues_ids': ids_rows, 'venues_counts_by_year': counts_rows}
+
+        venue_json['issn'] = json.dumps(venue_json.get('issn'))
+        venue_rows.append({col: venue_json.get(col) for col in venue_cols})
+
+        # ids
+        if venue_ids := venue_json.get('ids'):
+            venue_ids['venue_id'] = venue_id
+            venue_ids['issn'] = json.dumps(venue_ids.get('issn'))
+            ids_rows.append(venue_ids)
+
+        # counts by year
+        if counts_by_year := venue_json.get('counts_by_year'):
+            for count_by_year in counts_by_year:
+                count_by_year['venue_id'] = venue_id
+                counts_rows.append(count_by_year)
+
+        return {'venues': venue_rows, 'venues_ids': ids_rows, 'venues_counts_by_year': counts_rows}
+
+    def __init__(self, paths: Paths):
         super().__init__(kind='venues', paths=paths)
+        return
+
+    def init_dtype_dicts(self):
+        self.dtypes['venues'] = {
+            'id': 'string', 'issn_l': 'string', 'issn': 'string', 'display_name': 'string', 'publisher': 'string',
+            'works_count': 'Int64', 'cited_by_count': 'Int64', 'is_oa': 'bool', 'is_in_doaj': 'bool',
+            'homepage_url': 'string', 'works_api_url': 'string', 'updated_date': 'string'
+        }
+
+        self.dtypes['venues_ids'] = {
+            'venue_id': 'string', 'openalex': 'string', 'issn_l': 'string', 'issn': 'string', 'mag': 'string'
+        }
+
+        self.dtypes['venues_counts_by_year'] = {
+            'venue_id': 'string', 'year': 'Int64', 'works_count': 'Int64', 'cited_by_count': 'Int64'
+        }
+        return
+
+    def flatten(self):
+        """
+        if not (venue_id := venue.get('id')) or venue_id in seen_venue_ids:
+                        continue
+
+        venue['issn'] = json.dumps(venue.get('issn'))
+        venues_writer.writerow(venue)
+
+        if venue_ids := venue.get('ids'):
+            venue_ids['venue_id'] = venue_id
+            venue_ids['issn'] = json.dumps(venue_ids.get('issn'))
+            ids_writer.writerow(venue_ids)
+
+        if counts_by_year := venue.get('counts_by_year'):
+            for count_by_year in counts_by_year:
+                count_by_year['venue_id'] = venue_id
+                counts_by_year_writer.writerow(count_by_year)
+        """
         return

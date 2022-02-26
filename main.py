@@ -1,7 +1,7 @@
 import sys
 sys.path.extend(['../', './'])
 
-from src.entities import Authors, Works, Institutions, Concepts
+from src.entities import Authors, Works, Institutions, Concepts, Venues
 from src.utils import Paths
 
 
@@ -38,11 +38,19 @@ def parse_concepts(num_workers):
     return
 
 
+def parse_venues(num_workers):
+    paths = Paths()
+    venues = Venues(paths=paths)
+    print(venues)
+    venues.process(num_workers=num_workers)
+
+
 def main():
     # parse_authors(num_workers=4)
     # parse_works(num_workers=5)
     # parse_institutes(num_workers=2)
-    parse_concepts(num_workers=2)
+    # parse_concepts(num_workers=2)
+    parse_venues(num_workers=2)
     return
 
 
