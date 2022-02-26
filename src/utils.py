@@ -8,6 +8,7 @@ from pathlib import Path
 import gzip
 from tqdm.auto import tqdm
 from box import Box
+
 from src.globals import path_type
 import ujson as json
 from typing import List, Dict, Union
@@ -114,5 +115,6 @@ def ensure_dir(path: path_type, recursive: bool = False, exist_ok: bool = True) 
 
 if __name__ == '__main__':
     paths = Paths()
-    data = read_manifest(kind='authors', paths=paths)
-    data
+    df = pd.read_parquet(paths.processed_dir / 'authors')
+    print(len(df))
+

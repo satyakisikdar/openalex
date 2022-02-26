@@ -2,18 +2,18 @@
 Make individual classes
 """
 import abc
-from collections import defaultdict
+import gzip
 from pathlib import Path
-from time import sleep
 from typing import List, Dict
+
+import pandas as pd
 import ujson as json
 from box import Box
 from joblib import Parallel, delayed
-import pandas as pd
+from tqdm.auto import tqdm
 
 from src.globals import path_type, NAME_LEN, ID_LEN, LIST_LEN, URL_LEN
-from src.utils import Paths, read_manifest, read_gz_in_chunks, parallel_async, write_parquet, ensure_dir
-from tqdm.auto import tqdm
+from src.utils import Paths, read_manifest, ensure_dir
 
 
 class Entities:
@@ -37,43 +37,50 @@ class Entities:
         Process entries from the manifest
         :return:
         """
-        write = True
-        # write = False
-        with tqdm(total=len(self.manifest.entries), unit='entries', colour='green', ncols=100, miniters=0) as pbar:
-            for i, entry in enumerate(self.manifest.entries):
-                if str(entry.filename) in self.get_finished_files():
-                    tqdm.write(f'Skipping {entry.filename.stem}!')
-                tqdm.write(f'Processing {entry.filename!r}')
-                pbar.set_description(f'{self.kind!r} {entry.filename.stem!r}')
-                self.process_entry(entry=entry)
-                pbar.update(1)
+        entries = self.manifest.entries[: 50]
 
-                if write:  # write to finished files dir
-                    print(str(entry.filename), file=open(self.finished_files_path, 'a'))
-                if i == 5:
-                    break
+        Parallel(backend='multiprocessing', n_jobs=num_workers)(
+            delayed(self.process_entry)(entry) for entry in entries
+        )
+
+        # with tqdm(total=len(self.manifest.entries), unit='entries', colour='green', ncols=100, miniters=0) as pbar:
+        #     for i, entry in enumerate(self.manifest.entries):
+        #         pbar.set_description(f'{self.kind!r} {entry.filename.stem!r}')
+        #         self.process_entry(entry=entry)
+        #         pbar.update(1)
+        #         if i == 1:
+        #             break
         return
 
     @abc.abstractmethod
-    def process_entry(self, entry: Box):
+    def process_entry(self, entry: Box) -> None:
         """
         Process individual entries in the manifest
         :return:
         """
-        jsons_per_chunk = 100_000
-        with tqdm(total=entry.count, ncols=100, colour='blue', position=2) as pbar:
-            for chunk_id, chunk in enumerate(read_gz_in_chunks(fname=entry.filename, jsons_per_chunk=jsons_per_chunk,
-                                                               num_lines=entry.count)):
-                pbar.set_description(f'chunk: {chunk_id:,}')
-                rows_dict = self.process_jsons(jsons=chunk)  # keys are table names, vals are list of dicts
-                for table_name, rows in rows_dict.items():
-                    self.write_to_disk(table_name=table_name, updated_date=entry.updated_date, rows=rows, verbose=True)
-                pbar.update(len(chunk))
 
-        return
+        if str(entry.updated_date) in self.get_finished_files():
+            tqdm.write(f'Skipping {self.kind!r} {entry.updated_date!r}!')
+            return
+
+        tqdm.write(f'Processing {self.kind!r} {entry.updated_date!r}')
+        rows_dict = {col: [] for col in self.dtypes}
+
+        with tqdm(total=entry.count, ncols=100, colour='blue', position=2, unit='lines') as pbar:
+            with gzip.open(entry.filename) as fp:
+                for line in fp:
+                    json_line = json.loads(line)
+                    json_rows_dict = self.process_json(json_line)  # keys are table names, vals are list of dicts
+                    for name, rows in json_rows_dict.items():
+                        rows_dict[name].extend(rows)
+                    pbar.update(1)
+
+        for table_name, rows in rows_dict.items():
+            self.write_to_disk(table_name=table_name, updated_date=entry.updated_date, rows=rows, verbose=True)
+        return rows
 
     @abc.abstractmethod
-    def process_jsons(self, jsons: Dict):
+    def process_json(self, jsons: Dict):
         """
         Process JSONs and write to a parquet file
         :return:
@@ -238,14 +245,8 @@ class Entities:
         return schema[self.kind]
 
     def get_finished_files(self) -> List[path_type]:
-        # finished_files = []
-        # if not self.finished_files_path.exists():
-        #     finished_files = []
-        # else:
-        #     with open(self.finished_files_path) as fp:
-        #         finished_files = fp.read().split('\n')
-        #     finished_files.remove('')  # delete the stray blank string
-        return []
+        finished_files = [file.stem for file in (self.paths.processed_dir / self.kind).glob('*.pq')]
+        return finished_files
 
     def write_to_disk(self, table_name: str, updated_date: str, rows: List, fmt: str = 'parquet', verbose: bool = False,
                       **args):
@@ -254,9 +255,10 @@ class Entities:
         Path is obtained from Paths object processed directory
         """
 
-        df = pd.DataFrame(rows)[self.dtypes[table_name].keys()]
+        df = pd.DataFrame(rows)  # [self.dtypes[table_name].keys()]  # problem!
+
         df = df.astype(dtype=self.dtypes[table_name])
-        
+
         if fmt == 'hdf' or fmt == 'hdf5':
             ext = 'h5'
             min_itemsize = self.min_sizes[table_name]
@@ -265,13 +267,13 @@ class Entities:
         else:  # parquet
             ext = '.pq'
             writer_fn = pd.DataFrame.to_parquet
-            fun_args = dict(engine='fastparquet')
+            fun_args = dict(engine='pyarrow')
 
         path = self.paths.processed_dir / table_name / f'{updated_date}{ext}'
         print(path)
         ensure_dir(path.parents[0], recursive=True)  # makes sure the parent dirs exist
         if verbose:
-            tqdm.write(f'Writing {table_name!r} {len(df):,} rows to {path!r}')
+            tqdm.write(f'Writing {table_name!r} {len(df):,} rows to {path}')
         writer_fn(df, path=path, **fun_args, **args)
         return
 
@@ -289,51 +291,51 @@ class Authors(Entities):
         Initialize data type dictionaries
         :return:
         """
-        self.dtypes['authors'] = {'id': 'object', 'orcid': 'object', 'display_name': 'object',
-                                  'display_name_alternatives': 'object', 'works_count': 'int',
-                                  'cited_by_count': 'int', 'last_known_institution': 'object',
-                                  'works_api_url': 'object', 'updated_date': 'object'}
+        self.dtypes['authors'] = {'id': 'string', 'orcid': 'string', 'display_name': 'string',
+                                  'display_name_alternatives': 'string', 'works_count': 'int',
+                                  'cited_by_count': 'int', 'last_known_institution': 'string',
+                                  'works_api_url': 'string', 'updated_date': 'string'}
 
         self.min_sizes['authors'] = {'id': ID_LEN, 'orcid': ID_LEN, 'display_name': NAME_LEN,
-                                     'display_name_alternatives': LIST_LEN*2,
+                                     'display_name_alternatives': LIST_LEN * 2,
                                      'last_known_institution': ID_LEN, 'works_api_url': URL_LEN, 'updated_date': ID_LEN}
 
-        self.dtypes['authors_ids'] = {'author_id': 'object', 'openalex': 'object', 'orcid': 'object', 'scopus': 'object',
-                              'twitter': 'object', 'wikipedia': 'object', 'mag': 'object'}
+        self.dtypes['authors_ids'] = {'author_id': 'string', 'openalex': 'string', 'orcid': 'string',
+                                      'scopus': 'string', 'twitter': 'string', 'wikipedia': 'string', 'mag': 'string'}
         self.min_sizes['authors_ids'] = {'author_id': ID_LEN, 'openalex': ID_LEN, 'orcid': ID_LEN, 'scopus': ID_LEN,
-                                 'twitter': ID_LEN, 'wikipedia': ID_LEN, 'mag': ID_LEN}
+                                         'twitter': ID_LEN, 'wikipedia': ID_LEN, 'mag': ID_LEN}
 
-        self.dtypes['authors_counts_by_year'] = {'author_id': 'object', 'year': 'int', 'works_count': 'int',
-                                         'cited_by_count': 'int'}
+        self.dtypes['authors_counts_by_year'] = {'author_id': 'string', 'year': 'int', 'works_count': 'int',
+                                                 'cited_by_count': 'int'}
         self.min_sizes['authors_counts_by_year'] = {'author_id': ID_LEN}
 
         return
 
-    def process_jsons(self, jsons: List[Dict]):
-        author_rows, ids_rows, yearly_counts_rows = [], [], []
+    def process_json(self, author_json: Dict):
         author_cols, id_cols, yearly_counts_cols = self.schema.authors.columns, self.schema.ids.columns, self.schema.counts_by_year.columns
+        author_rows, ids_rows, yearly_counts_rows = [], [], []
 
-        for author in jsons:
-            if not (author_id := author.get('id')):
-                continue
-            author['display_name_alternatives'] = json.dumps(author.get('display_name_alternatives'))
-            author['last_known_institution'] = (author.get('last_known_institution') or {}).get('id', '')
-            author['orcid'] = str(author.get('orcid', ''))
-            author['display_name'] = str(author.get('display_name', ''))
-            author_row = {col: author.get(col, '') for col in author_cols}
-            author_rows.append(author_row)
+        if not (author_id := author_json.get('id')):
+            return author_rows, ids_rows, yearly_counts_rows
 
-            if author_ids := author.get('ids'):
-                author_ids['author_id'] = author_id
-                author_ids_row = {col: str(author_ids.get(col, '')) for col in id_cols}  # force ids to be strings
-                ids_rows.append(author_ids_row)
+        author_json['display_name_alternatives'] = json.dumps(author_json.get('display_name_alternatives'))
+        author_json['last_known_institution'] = (author_json.get('last_known_institution') or {}).get('id', '')
+        author_json['orcid'] = str(author_json.get('orcid', ''))
+        author_json['display_name'] = str(author_json.get('display_name', ''))
+        author_row = {col: author_json.get(col, '') for col in author_cols}
+        author_rows.append(author_row)
 
-            # counts_by_year
-            if counts_by_year := author.get('counts_by_year'):
-                for count_by_year in counts_by_year:
-                    count_by_year['author_id'] = author_id
-                    count_row = {col: count_by_year.get(col, '') for col in yearly_counts_cols}
-                    yearly_counts_rows.append(count_row)
+        if author_ids := author_json.get('ids'):
+            author_ids['author_id'] = author_id
+            author_ids_row = {col: str(author_ids.get(col, '')) for col in id_cols}  # force ids to be strings
+            ids_rows.append(author_ids_row)
+
+        # counts_by_year
+        if counts_by_year := author_json.get('counts_by_year'):
+            for count_by_year in counts_by_year:
+                count_by_year['author_id'] = author_id
+                count_row = {col: count_by_year.get(col, '') for col in yearly_counts_cols}
+                yearly_counts_rows.append(count_row)
 
         return {'authors': author_rows, 'authors_ids': ids_rows, 'authors_counts_by_year': yearly_counts_rows}
 
@@ -343,7 +345,7 @@ class Works(Entities):
         super().__init__(kind='works', paths=paths)
         return
 
-    def process_jsons(self, jsons):
+    def process_json(self, jsons):
         pass
 
 
@@ -352,7 +354,7 @@ class Institutions(Entities):
         super().__init__(kind='institutions', paths=paths)
         return
 
-    def process_jsons(self, jsons):
+    def process_json(self, jsons):
         pass
 
 
@@ -361,5 +363,5 @@ class Concepts(Entities):
         super().__init__(kind='concepts', paths=paths)
         return
 
-    def process_jsons(self, jsons):
+    def process_json(self, jsons):
         pass
