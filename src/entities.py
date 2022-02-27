@@ -2,7 +2,6 @@
 Make individual classes
 """
 import abc
-import gc
 import gzip
 from pathlib import Path
 from typing import List, Dict
@@ -266,7 +265,7 @@ class Entities:
             writer_fn = pd.DataFrame.to_hdf
             fun_args = dict()
         else:  # parquet
-            ext = '.pq'
+            ext = '.parquet'
             writer_fn = pd.DataFrame.to_parquet
             fun_args = dict(engine='pyarrow')
 
@@ -329,12 +328,14 @@ class Entities:
         """
         for entry in tqdm(self.manifest.entries, unit='entry', ncols=100, colour='cyan'):
             try:
-                parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
-                assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
-                del parq_df
-                gc.collect()
+                # parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
+                # assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
+                # del parq_df
+                # gc.collect()
 
                 for table_name in self.dtypes:
+                    if table_name == self.kind:
+                        continue
                     parq_df = pd.read_parquet(self.paths.processed_dir / table_name / f'{entry.updated_date}.pq')
                     assert len(parq_df) > 0, f'Improper parquet: {table_name!r} {entry.updated_date!r}.\n'
             except Exception as e:
