@@ -2,6 +2,7 @@
 Make individual classes
 """
 import abc
+import gc
 import gzip
 from pathlib import Path
 from typing import List, Dict
@@ -326,9 +327,18 @@ class Entities:
         """
         Validate individual parquet files with the manifests -- record counts should match up for the main table
         """
-        for entry in tqdm(self.manifest.entries, unit='entries', ncols=100, colour='cyan'):
-            parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
-            assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
+        for entry in tqdm(self.manifest.entries, unit='entry', ncols=100, colour='cyan'):
+            try:
+                parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
+                assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
+                del parq_df
+                gc.collect()
+
+                for table_name in self.dtypes:
+                    parq_df = pd.read_parquet(self.paths.processed_dir / table_name / f'{entry.updated_date}.pq')
+                    assert len(parq_df) > 0, f'Improper parquet: {table_name!r} {entry.updated_date!r}.\n'
+            except Exception as e:
+                print(f'Error for {self.kind!r} {entry.updated_date!r}! {e}')
         print(f'Individual parquets check out for {self.kind!r}!')
         return
 
