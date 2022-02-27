@@ -1,21 +1,20 @@
+import gzip
 import multiprocessing
-import threading
 import time
+from datetime import datetime
 from multiprocessing import Pool
+from pathlib import Path
+from typing import List, Dict
 
 import pandas as pd
-from pathlib import Path
-import gzip
-from tqdm.auto import tqdm
+import ujson as json
 from box import Box
 
 from src.globals import path_type
-import ujson as json
-from typing import List, Dict, Union
 
 
 class Paths:
-    def __init__(self, basepath: path_type='/N/project/openalex'):
+    def __init__(self, basepath: path_type = '/N/project/openalex'):
         self.basepath: Path = Path(basepath)
         self.snapshot_dir = self.basepath / 'OpenAlex' / 'openalex-snapshot' / 'data'
         self.processed_dir = self.basepath / 'ssikdar' / 'processed'
@@ -25,15 +24,20 @@ class Paths:
 
 # Read file list from MANIFEST
 def read_manifest(kind: str, paths: Paths) -> Box:
-    raw_data = Box(json.load(open(paths.snapshot_dir / kind / 'manifest')))
-    print(f'Reading {kind!r} manifest. {len(raw_data.entries):,} files, {raw_data.meta.record_count:,} records')
+    manifest_path = paths.snapshot_dir / kind / 'manifest'
+    create_date = datetime.fromtimestamp(manifest_path.stat().st_ctime).strftime("%a, %b %d %Y")
+
+    raw_data = Box(json.load(open(manifest_path)))
+    print(f'Reading {kind!r} manifest created on {create_date}. {len(raw_data.entries):,} files, '
+          f'{raw_data.meta.record_count:,} records.')
     data = Box({'len': raw_data.meta.record_count})
 
     entries = []
     for raw_entry in raw_data.entries:
         filename = paths.snapshot_dir / raw_entry.url.replace('s3://openalex/data/', '')
         entry = Box({'filename': filename, 'kind': kind,
-                     'count': raw_entry.meta.record_count, 'updated_date': '_'.join(filename.parts[-2:]).replace('.gz', '')})
+                     'count': raw_entry.meta.record_count,
+                     'updated_date': '_'.join(filename.parts[-2:]).replace('.gz', '')})
         entries.append(entry)
     data['entries'] = entries
     return data
