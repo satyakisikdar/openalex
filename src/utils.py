@@ -26,7 +26,7 @@ class Paths:
 # Read file list from MANIFEST
 def read_manifest(kind: str, paths: Paths) -> Box:
     raw_data = Box(json.load(open(paths.snapshot_dir / kind / 'manifest')))
-    print(f'Reading {kind!r} manifest: {raw_data.meta.record_count:,} records')
+    print(f'Reading {kind!r} manifest. {len(raw_data.entries):,} files, {raw_data.meta.record_count:,} records')
     data = Box({'len': raw_data.meta.record_count})
 
     entries = []
