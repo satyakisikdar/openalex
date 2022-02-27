@@ -12,7 +12,7 @@ from box import Box
 from joblib import Parallel, delayed
 from tqdm.auto import tqdm
 
-from src.globals import path_type, NAME_LEN, ID_LEN, LIST_LEN, URL_LEN
+from src.globals import path_type
 from src.utils import Paths, read_manifest, ensure_dir
 
 
@@ -326,7 +326,7 @@ class Entities:
         """
         Validate individual parquet files with the manifests -- record counts should match up for the main table
         """
-        for entry in self.manifest.entries:
+        for entry in tqdm(self.manifest.entries, unit='entries', ncols=100, colour='cyan'):
             parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
             assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
         print(f'Individual parquets check out for {self.kind!r}!')
