@@ -60,10 +60,10 @@ class Entities:
         """
 
         if str(entry.updated_date) in self.get_finished_files():
-            tqdm.write(f'Skipping {self.kind!r} {entry.updated_date!r}!')
+            # tqdm.write(f'Skipping {self.kind!r} {entry.updated_date!r}!')
             return
 
-        tqdm.write(f'Processing {self.kind!r} {entry.updated_date!r}')
+        tqdm.write(f'\nProcessing {self.kind!r} {entry.updated_date!r}')
         rows_dict = {col: [] for col in self.dtypes}
 
         with tqdm(total=entry.count, ncols=100, colour='blue', position=2, unit='lines') as pbar:
@@ -276,6 +276,62 @@ class Entities:
         writer_fn(df, path=path, **fun_args, **args)
         return
 
+    def find_missing_tables(self):
+        """
+        Validate the entries from the manifest and generate a small report
+        :return:
+        """
+        table_names = self.dtypes.keys()
+        missing_tables = {}
+        for fname in (self.paths.processed_dir / self.kind).glob('*.pq'):
+            updated_date = fname.stem
+            for table_name in table_names:
+                parq_filename = self.paths.processed_dir / table_name / f'{updated_date}.pq'
+                if not parq_filename.exists():
+                    if updated_date not in missing_tables:
+                        missing_tables[updated_date] = []
+                    missing_tables[updated_date].append(table_name)
+
+        return missing_tables
+
+    def compute_missing_tables(self):
+        """
+        Compute missing entries
+        """
+        missing_tables = self.find_missing_tables()
+        print(f'\n\nMissing tables for {len(missing_tables)} entries')
+
+        for updated_dated_info, missing_table_names in missing_tables.items():
+            parts = updated_dated_info.split('_')
+            updated_date = '_'.join(parts[: 2])
+            gz_filename = self.paths.snapshot_dir / self.kind / updated_date / ('_'.join(parts[2:]) + '.gz')
+
+            rows_dict = {col: [] for col in missing_table_names}
+            tqdm.write(f'\nProcessing {missing_table_names} {gz_filename}')
+            with gzip.open(gz_filename) as fp:
+                for line in fp:
+                    json_line = json.loads(line)
+                    json_rows_dict = self.process_json(json_line)
+                    for name, rows in json_rows_dict.items():
+                        if name not in missing_table_names:
+                            continue
+                        rows_dict[name].extend(rows)
+
+            for table_name, rows in rows_dict.items():
+                self.write_to_disk(table_name=table_name, updated_date=updated_dated_info, rows=rows, verbose=True)
+            # break
+        return
+
+    def validate_tables(self):
+        """
+        Validate individual parquet files with the manifests -- record counts should match up for the main table
+        """
+        for entry in self.manifest.entries:
+            parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
+            assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
+        print(f'Individual parquets check out for {self.kind!r}!')
+        return
+
 
 class Authors(Entities):
     def __init__(self, paths: Paths):
@@ -290,22 +346,22 @@ class Authors(Entities):
         :return:
         """
         self.dtypes['authors'] = {'id': 'string', 'orcid': 'string', 'display_name': 'string',
-                                  'display_name_alternatives': 'string', 'works_count': 'int',
-                                  'cited_by_count': 'int', 'last_known_institution': 'string',
+                                  'display_name_alternatives': 'string', 'works_count': 'Int64',
+                                  'cited_by_count': 'Int64', 'last_known_institution': 'string',
                                   'works_api_url': 'string', 'updated_date': 'string'}
 
-        self.min_sizes['authors'] = {'id': ID_LEN, 'orcid': ID_LEN, 'display_name': NAME_LEN,
-                                     'display_name_alternatives': LIST_LEN * 2,
-                                     'last_known_institution': ID_LEN, 'works_api_url': URL_LEN, 'updated_date': ID_LEN}
+        # self.min_sizes['authors'] = {'id': ID_LEN, 'orcid': ID_LEN, 'display_name': NAME_LEN,
+        #                              'display_name_alternatives': LIST_LEN * 2,
+        #                              'last_known_institution': ID_LEN, 'works_api_url': URL_LEN, 'updated_date': ID_LEN}
 
         self.dtypes['authors_ids'] = {'author_id': 'string', 'openalex': 'string', 'orcid': 'string',
                                       'scopus': 'string', 'twitter': 'string', 'wikipedia': 'string', 'mag': 'string'}
-        self.min_sizes['authors_ids'] = {'author_id': ID_LEN, 'openalex': ID_LEN, 'orcid': ID_LEN, 'scopus': ID_LEN,
-                                         'twitter': ID_LEN, 'wikipedia': ID_LEN, 'mag': ID_LEN}
+        # self.min_sizes['authors_ids'] = {'author_id': ID_LEN, 'openalex': ID_LEN, 'orcid': ID_LEN, 'scopus': ID_LEN,
+        #                                  'twitter': ID_LEN, 'wikipedia': ID_LEN, 'mag': ID_LEN}
 
-        self.dtypes['authors_counts_by_year'] = {'author_id': 'string', 'year': 'int', 'works_count': 'int',
-                                                 'cited_by_count': 'int'}
-        self.min_sizes['authors_counts_by_year'] = {'author_id': ID_LEN}
+        self.dtypes['authors_counts_by_year'] = {'author_id': 'string', 'year': 'Int64', 'works_count': 'Int64',
+                                                 'cited_by_count': 'Int64'}
+        # self.min_sizes['authors_counts_by_year'] = {'author_id': ID_LEN}
 
         return
 
@@ -345,10 +401,7 @@ class Works(Entities):
         return
 
     def process_json(self, work_json):
-        work_cols, host_venue_cols, alt_host_venue_cols, auths_cols, concepts_cols, ids_cols, mesh_cols, ref_cols, \
-        rel_cols = self.schema.works.columns, self.schema.host_venues.columns, self.schema.alternate_host_venues.columns, \
-                   self.schema.authorships.columns, self.schema.concepts.columns, self.schema.ids.columns, \
-                   self.schema.mesh.columns, self.schema.referenced_works.columns, self.schema.related_works.columns
+        work_cols = self.schema.works.columns
 
         work_rows, host_venue_rows, alt_host_venue_rows, auths_rows, concepts_rows, ids_rows, mesh_rows, ref_rows, \
         rel_rows = [], [], [], [], [], [], [], [], []
