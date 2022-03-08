@@ -66,7 +66,7 @@ class Entities:
         tqdm.write(f'\nProcessing {self.kind!r} {entry.updated_date!r}')
         rows_dict = {col: [] for col in self.dtypes}
 
-        with tqdm(total=entry.count, ncols=100, colour='blue', position=2, unit='lines') as pbar:
+        with tqdm(total=entry.count, ncols=100, colour='green', unit='line', position=0, leave=True) as pbar:
             with gzip.open(entry.filename) as fp:
                 for line in fp:
                     json_line = json.loads(line)
@@ -245,7 +245,7 @@ class Entities:
         return schema[self.kind]
 
     def get_finished_files(self) -> List[path_type]:
-        finished_files = [file.stem for file in (self.paths.processed_dir / self.kind).glob('*.pq')]
+        finished_files = [file.stem for file in (self.paths.processed_dir / self.kind).glob('*.parquet')]
         return finished_files
 
     def write_to_disk(self, table_name: str, updated_date: str, rows: List, fmt: str = 'parquet', verbose: bool = False,
@@ -283,10 +283,10 @@ class Entities:
         """
         table_names = self.dtypes.keys()
         missing_tables = {}
-        for fname in (self.paths.processed_dir / self.kind).glob('*.pq'):
+        for fname in (self.paths.processed_dir / self.kind).glob('*.parquet'):
             updated_date = fname.stem
             for table_name in table_names:
-                parq_filename = self.paths.processed_dir / table_name / f'{updated_date}.pq'
+                parq_filename = self.paths.processed_dir / table_name / f'{updated_date}.parquet'
                 if not parq_filename.exists():
                     if updated_date not in missing_tables:
                         missing_tables[updated_date] = []
@@ -328,7 +328,7 @@ class Entities:
         """
         for entry in tqdm(self.manifest.entries, unit='entry', ncols=100, colour='cyan'):
             try:
-                # parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.pq')
+                # parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.parquet')
                 # assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
                 # del parq_df
                 # gc.collect()
@@ -336,7 +336,7 @@ class Entities:
                 for table_name in self.dtypes:
                     if table_name == self.kind:
                         continue
-                    parq_df = pd.read_parquet(self.paths.processed_dir / table_name / f'{entry.updated_date}.pq')
+                    parq_df = pd.read_parquet(self.paths.processed_dir / table_name / f'{entry.updated_date}.parquet')
                     assert len(parq_df) > 0, f'Improper parquet: {table_name!r} {entry.updated_date!r}.\n'
             except Exception as e:
                 print(f'Error for {self.kind!r} {entry.updated_date!r}! {e}')
