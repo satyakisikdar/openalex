@@ -2,7 +2,9 @@
 Make individual classes
 """
 import abc
+import gc
 import gzip
+import os
 from pathlib import Path
 from typing import List, Dict
 
@@ -66,7 +68,8 @@ class Entities:
         tqdm.write(f'\nProcessing {self.kind!r} {entry.updated_date!r}')
         rows_dict = {col: [] for col in self.dtypes}
 
-        with tqdm(total=entry.count, ncols=100, colour='green', unit='line', position=0, leave=True) as pbar:
+        with tqdm(total=entry.count, ncols=100, colour='green', unit='line', position=0, leave=True,
+                  ascii=True) as pbar:
             with gzip.open(entry.filename) as fp:
                 for line in fp:
                     json_line = json.loads(line)
@@ -77,7 +80,9 @@ class Entities:
 
         for table_name, rows in rows_dict.items():
             self.write_to_disk(table_name=table_name, updated_date=entry.updated_date, rows=rows, verbose=False)
-        return rows
+        del rows_dict
+        gc.collect()
+        return
 
     @abc.abstractmethod
     def process_json(self, jsons: Dict):
@@ -322,25 +327,48 @@ class Entities:
             # break
         return
 
-    def validate_tables(self):
+    def validate_tables(self, delete: bool = False, start: int = 0):
         """
         Validate individual parquet files with the manifests -- record counts should match up for the main table
         """
-        for entry in tqdm(self.manifest.entries, unit='entry', ncols=100, colour='cyan'):
+        invalid_files = []
+        for entry in tqdm(self.manifest.entries[start:], unit='entry', ncols=100, colour='cyan'):
+            # try:
+            parq_path = self.paths.processed_dir / self.kind / f'{entry.updated_date}.parquet'
+            if not parq_path.exists():
+                continue
             try:
-                # parq_df = pd.read_parquet(self.paths.processed_dir / self.kind / f'{entry.updated_date}.parquet')
-                # assert len(parq_df) == entry.count, f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}'
-                # del parq_df
-                # gc.collect()
-
-                for table_name in self.dtypes:
-                    if table_name == self.kind:
-                        continue
-                    parq_df = pd.read_parquet(self.paths.processed_dir / table_name / f'{entry.updated_date}.parquet')
-                    assert len(parq_df) > 0, f'Improper parquet: {table_name!r} {entry.updated_date!r}.\n'
+                parq_df = pd.read_parquet(parq_path)
             except Exception as e:
-                print(f'Error for {self.kind!r} {entry.updated_date!r}! {e}')
-        print(f'Individual parquets check out for {self.kind!r}!')
+                parq_df = []  # this triggers the next if statement
+
+            if len(parq_df) != entry.count:  # recompute if the counts don't match up
+                # tqdm.write(f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}')
+                invalid_files.append(parq_path)
+                if delete:
+                    if parq_path.exists():
+                        tqdm.write(f'Deleting file @ {parq_path}!')
+                        os.remove(parq_path)
+                continue
+            del parq_df
+            gc.collect()
+
+            for table_name in self.dtypes:
+                if table_name == self.kind:
+                    continue
+                parq_path = self.paths.processed_dir / table_name / f'{entry.updated_date}.parquet'
+                try:
+                    parq_df = pd.read_parquet(parq_path)
+                    assert len(parq_df) > 0
+                except Exception as e:
+                    invalid_files.append(parq_path)  # recompute if parquet is off
+                    if delete:
+                        if parq_path.exists():
+                            tqdm.write(f'Deleting file @ {parq_path}!')
+                            os.remove(parq_path)
+
+        print(f'Errorful parquets: {len(invalid_files):,} for {self.kind!r}!')
+
         return
 
 
