@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from typing import List, Dict
 
-import orjson as json
 import pandas as pd
+import ujson as json
 from box import Box
 from joblib import Parallel, delayed
 from tqdm.auto import tqdm
@@ -68,11 +68,15 @@ class Entities:
         tqdm.write(f'\nProcessing {self.kind!r} {entry.updated_date!r}')
         rows_dict = {col: [] for col in self.dtypes}
 
-        with tqdm(total=entry.count, ncols=100, colour='green', unit='line', position=0, leave=True,
+        with tqdm(total=entry.count, ncols=100, colour='green', unit='line', leave=True,
                   ascii=True) as pbar:
             with gzip.open(entry.filename) as fp:
                 for line in fp:
-                    json_line = json.loads(line)
+                    try:
+                        json_line = json.loads(line)
+                    except Exception as e:
+                        print(f'\n{e=}, {str(entry.filename)=}\n')
+                        continue
                     json_rows_dict = self.process_json(json_line)  # keys are table names, vals are list of dicts
                     for name, rows in json_rows_dict.items():
                         rows_dict[name].extend(rows)
@@ -191,7 +195,7 @@ class Entities:
                     'columns': [
                         'id', 'doi', 'title', 'display_name', 'publication_year', 'publication_date', 'type',
                         'cited_by_count',
-                        'is_retracted', 'is_paratext', 'cited_by_api_url', 'abstract_inverted_index'
+                        'is_retracted', 'is_paratext', 'cited_by_api_url', 'abstract_inverted_index', 'updated_date'
                     ]
                 },
                 'host_venues': {
@@ -332,8 +336,10 @@ class Entities:
         Validate individual parquet files with the manifests -- record counts should match up for the main table
         """
         invalid_files = []
+        if start != 0:
+            tqdm.write(f'Starting at entry #{start}')
+
         for entry in tqdm(self.manifest.entries[start:], unit='entry', ncols=100, colour='cyan'):
-            # try:
             parq_path = self.paths.processed_dir / self.kind / f'{entry.updated_date}.parquet'
             if not parq_path.exists():
                 continue
@@ -359,7 +365,7 @@ class Entities:
                 parq_path = self.paths.processed_dir / table_name / f'{entry.updated_date}.parquet'
                 try:
                     parq_df = pd.read_parquet(parq_path)
-                    assert len(parq_df) > 0
+                    assert len(parq_df) >= 0
                 except Exception as e:
                     invalid_files.append(parq_path)  # recompute if parquet is off
                     if delete:
@@ -443,13 +449,13 @@ class Works(Entities):
         work_cols = self.schema.works.columns
 
         work_rows, host_venue_rows, alt_host_venue_rows, auths_rows, concepts_rows, ids_rows, mesh_rows, ref_rows, \
-        rel_rows = [], [], [], [], [], [], [], [], []
+        rel_rows, biblio_rows = [], [], [], [], [], [], [], [], [], []
 
         if not (work_id := work_json.get('id')):
             return {'works': work_rows, 'works_host_venues': host_venue_rows,
                     'works_alternate_host_venues': alt_host_venue_rows, 'works_authorships': auths_rows,
                     'works_concepts': concepts_rows, 'works_ids': ids_rows, 'works_mesh': mesh_rows,
-                    'works_referenced_works': ref_rows, 'works_related_works': rel_rows}
+                    'works_referenced_works': ref_rows, 'works_related_works': rel_rows, 'works_biblio': biblio_rows}
 
         if (abstract := work_json.get('abstract_inverted_index')) is not None:
             work_json['abstract_inverted_index'] = json.dumps(abstract)
@@ -534,10 +540,15 @@ class Works(Entities):
                     'related_work_id': related_work
                 })
 
+        # biblio
+        if biblio := work_json.get('biblio'):
+            biblio['work_id'] = work_id
+            biblio_rows.append(biblio)
+
         return {'works': work_rows, 'works_host_venues': host_venue_rows,
                 'works_alternate_host_venues': alt_host_venue_rows, 'works_authorships': auths_rows,
                 'works_concepts': concepts_rows, 'works_ids': ids_rows, 'works_mesh': mesh_rows,
-                'works_referenced_works': ref_rows, 'works_related_works': rel_rows}
+                'works_referenced_works': ref_rows, 'works_related_works': rel_rows, 'works_biblio': biblio_rows}
 
     def init_dtype_dicts(self):
         self.dtypes['works'] = {
@@ -579,6 +590,10 @@ class Works(Entities):
 
         self.dtypes['works_related_works'] = {
             'work_id': 'string', 'related_work_id': 'string'
+        }
+
+        self.dtypes['works_biblio'] = {
+            'work_id': 'string', 'volume': 'string', 'issue': 'string', 'first_page': 'string', 'last_page': 'string'
         }
         return
 
