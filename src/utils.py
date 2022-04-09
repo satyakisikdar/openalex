@@ -1,3 +1,4 @@
+import ast
 import gzip
 import multiprocessing
 import time
@@ -9,6 +10,7 @@ from typing import List, Dict
 import pandas as pd
 import ujson as json
 from box import Box
+from tqdm import tqdm
 
 from src.globals import path_type
 
@@ -19,6 +21,8 @@ class Paths:
         self.snapshot_dir = self.basepath / 'OpenAlex' / 'openalex-snapshot' / 'data'
         self.processed_dir = self.basepath / 'ssikdar' / 'processed'
         self.temp_dir = self.basepath / 'ssikdar' / 'temp'
+        self.aps_parq_dir = self.basepath / 'APS' / 'new' / 'parquets'
+        self.aps_csv_dir = self.basepath / 'APS' / 'new' / 'csvs'
         return
 
 
@@ -117,8 +121,47 @@ def ensure_dir(path: path_type, recursive: bool = False, exist_ok: bool = True) 
     return
 
 
+def read_parquet(path, **args):
+    df = pd.read_parquet(path, engine='pyarrow')
+    df.reset_index(inplace=True)
+    if '__null_dask_index__' in df.columns:
+        df.drop(['__null_dask_index__'], axis=1, inplace=True)
+    if 'index' in df.columns:
+        df.drop(['index'], axis=1, inplace=True)
+    df.drop_duplicates(inplace=True)
+
+    if 'index_col' in args:
+        df.set_index(args['index_col'], inplace=True)
+    print(f'Read {len(df):,} rows from {path.stem!r}')
+    return df
+
+
+def construct_abstracts(inv_abstracts):
+    """"
+    Construct abstracts from inverted index
+    keys: words, values: list of locations
+    """
+    abstracts = []
+
+    for inv_abstract_st in tqdm(inv_abstracts, desc='Constructing abstracts..'):
+        inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
+        if isinstance(inv_abstract_st, bytes):
+            inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
+
+        inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
+        abstract_dict = {}
+        for word, locs in inv_abstract.items():  # invert the inversion
+            for loc in locs:
+                abstract_dict[loc] = word
+        abstract = ' '.join(map(lambda x: x[1],  # pick the words
+                                sorted(abstract_dict.items())))  # sort abstract dictionary by indices
+        if len(abstract) == 0:
+            abstract = None
+        abstracts.append(abstract)
+    return abstracts
+
+
 if __name__ == '__main__':
     paths = Paths()
     df = pd.read_parquet(paths.processed_dir / 'authors')
     print(len(df))
-
