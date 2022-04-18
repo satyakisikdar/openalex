@@ -77,7 +77,8 @@ class Indices:
         self.paths = paths
         self.works = None
         self.works_authorships = None
-        self.works_concepts = None
+        self.works_concepts = None  # stores the mapping works -> concepts
+        self.concepts_works = None  # stores the inverse mapping: concepts -> work_ids
         self.works_citing_works = None
         self.works_referenced_works = None
         self.authors = None
