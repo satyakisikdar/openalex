@@ -111,6 +111,8 @@ class Indices:
                 cols = ['author_id']
             elif kind == 'works_citing_works':
                 cols = ['referenced_work_id']
+            elif kind == 'concepts_works':
+                cols = ['concept_id']
             else:
                 cols = ['work_id']
 
