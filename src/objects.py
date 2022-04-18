@@ -93,6 +93,17 @@ class Concept:
 
     def __post_init__(self):
         self.url = f'https://openalex.org/C{self.concept_id}'
+        if self.name is None:  # make an API call to fill out the details
+            session = requests.Session()
+
+            url = f'https://api.openalex.org/C{self.concept_id}'
+            params = {'mailto': 'ssikdar@iu.edu'}
+            session.headers.update(params)
+            response = session.get(url, headers=session.headers, params=params)
+            assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
+            data = response.json()
+            self.name = data['display_name']
+            self.level = data['level']
         return
 
     def populate_tagged_works(self, indices: Indices, paths: Paths):
