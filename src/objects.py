@@ -150,7 +150,7 @@ class Work:
         kind = 'works'
         part_no = self.get_partition_info(kind=kind, indices=indices)
 
-        if part_no is None or pd.isna(part_no):
+        if part_no is None:
             return
 
         info = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no).to_dict()
@@ -166,7 +166,7 @@ class Work:
         kind = 'works_host_venues'
         part_no = self.get_partition_info(kind=kind, indices=indices)
 
-        if part_no is None or pd.isna(part_no):
+        if part_no is None:
             return
 
         venue_row = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no)
@@ -191,7 +191,7 @@ class Work:
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
 
-        if part_no is None or pd.isna(part_no):
+        if part_no is None:
             return
 
         authors_info = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no)
@@ -225,7 +225,7 @@ class Work:
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
         # print(f'{part_no=}, {type(part_no)=}')
-        if part_no is None or pd.isna(part_no):
+        if part_no is None:
             return
 
         concepts_rows = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no)
@@ -246,8 +246,7 @@ class Work:
         kind = 'works_citing_works'
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
-        print(f'{part_no=}')
-        if part_no is None or pd.isna(part_no):
+        if part_no is None:
             return
 
         refs_rows = get_rows(id_=self.work_id, kind=kind, id_col='referenced_work_id', part_no=part_no, paths=self.paths)
@@ -261,7 +260,7 @@ class Work:
         """
         kind = 'works_referenced_works'
         part_no = self.get_partition_info(kind=kind, indices=indices)
-        if part_no is None or pd.isna(part_no): # or isinstance(part_no, pd.core.Series):
+        if part_no is None:
             return
         refs_rows = get_rows(id_=self.work_id, kind=kind, part_no=part_no, paths=self.paths)
         self.references = set(refs_rows.referenced_work_id)

@@ -144,10 +144,15 @@ def get_partition_no(id_: int, kind: Optional[str] = None, ix_df: Optional[pd.Da
      Return the partition number for the entity in the table
     """
     try:
-        part_no = ix_df.at[id_, ix_df.columns[0]]  # .values[0]
+        stuff = ix_df.at[id_, ix_df.columns[0]]
+        if isinstance(stuff, pd.Series):
+            part_no = stuff.unique().tolist()
+        else:
+            part_no = int(stuff)
     except KeyError:
         print(f'{id_} not found in {kind!r}')
         return None
+
     return part_no
 
 
@@ -157,7 +162,7 @@ def get_rows(id_: int, kind: str, paths: Paths, part_no: int, id_col: str = 'wor
     # if part_no is None:  # still none
     #     return None
 
-    if not isinstance(part_no, np.uint16):  # multiple partitions
+    if isinstance(part_no, list):  # multiple partitions
         part_df = pd.concat([pd.read_parquet(paths.parq_dir / kind / f'part.{n}.parquet',  # engine='fastparquet',
                                              filters=[(id_col, '=', id_)])
                              for n in part_no])
