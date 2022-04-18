@@ -147,7 +147,7 @@ class Venue:
 class Work:
     work_id: int
     paths: Paths = field(repr=False)
-    partitions_dict: dict = field(default_factory=lambda: {})  # partition indices
+    partitions_dict: dict = field(default_factory=lambda: {}, repr=False)  # partition indices
 
     url: Optional[str] = None
     part_no: Optional[int] = None
@@ -161,12 +161,14 @@ class Work:
     abstract_inverted_index: Optional[str] = field(default=None, repr=False)
     authors: List[Author] = field(default_factory=lambda: [])
     concepts: List[Concept] = field(default_factory=lambda: [])
-    references: set = field(default=None, repr=False)  # list of reference works
-    citing_works: set = field(default=None, repr=False)  # list of citing works
     citations: int = None  # number of citations
+    references: set = field(default=None, repr=False)     # set of reference works
+    citing_works: set = field(default=None, repr=False)   # set of citing works
+    cocited_works: set = field(default=None, repr=False)  # set of co-cited works
 
     def __post_init__(self):
         self.url = f'https://openalex.org/W{self.work_id}'
+        ## TODO: replace populate_info with an API call?
         return
 
     def get_partition_info(self, kind: str, indices: Indices):
@@ -233,6 +235,10 @@ class Work:
             return
 
         authors_info = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no)
+        authors_info.loc[:, 'author_position'] = pd.Categorical(authors_info.author_position,
+                                                                categories=['first', 'middle', 'last'],
+                                                                ordered=True)
+        authors_info = authors_info.sort_values(by='author_position')
 
         # check for multiple affils
         authors_dict = {}
@@ -303,3 +309,26 @@ class Work:
         refs_rows = get_rows(id_=self.work_id, kind=kind, part_no=part_no, paths=self.paths)
         self.references = set(refs_rows.referenced_work_id)
         return
+
+    def populate_cocitations(self, indices: Indices):
+        """
+        Return the co-cited works -- D = set of papers citing the paper,
+        cocited papers = set of papers cited by papers in D
+
+        currently too slow -- optimize references call -- build a graph
+        """
+        cocited_papers = set()
+
+        if self.citing_works is None:
+            self.populate_citations(indices=indices)
+
+        if self.citations == 0:  # work has no citations, don't bother
+            return  # cocited_papers
+
+        for citing_work_id in self.citing_works:
+            w = Work(work_id=citing_work_id, paths=self.paths)
+            w.populate_references(indices=indices)
+            cocited_papers.update(w.references)
+
+        self.cocited_works = cocited_papers
+        return  # cocited_papers
