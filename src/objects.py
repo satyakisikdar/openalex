@@ -80,18 +80,45 @@ class Author:
 
         return work_ids
 
+
 @dataclass
 class Concept:
     concept_id: int
-    score: float
-    name: str
-    level: int
-    url: str = None
+    score: Optional[float] = None
+    name: Optional[str] = None
+    level: Optional[int] = None
+    url: Optional[str] = None
+    tagged_works: Optional[list] = field(default_factory=lambda: [], repr=False)
+    works_count: Optional[int] = None
 
     def __post_init__(self):
         self.url = f'https://openalex.org/C{self.concept_id}'
         return
 
+    def populate_tagged_works(self, indices: Indices, paths: Paths):
+        """
+        Return the set of work ids tagged with the concept
+        """
+        if len(self.tagged_works) > 0:
+            print('Already tagged')
+            return
+
+        print('Getting works tagged with the concept')
+        kind = 'concepts_works'
+
+        part_no = get_partition_no(id_=self.concept_id, kind=kind, ix_df=indices[kind])
+
+        if part_no is None:
+            return
+
+        concepts_work_rows = get_rows(id_=self.concept_id, id_col='concept_id', kind=kind, paths=paths, part_no=part_no)
+        # rows have work ids and score
+        concepts_work_rows = concepts_work_rows.sort_values(by='score', ascending=False)  # sort by score
+        for row in concepts_work_rows.itertuples():
+            self.tagged_works.append((row.work_id, row.score))
+
+        self.works_count = len(self.tagged_works)  # update works count
+        return
 
 
 @dataclass
