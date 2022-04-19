@@ -12,6 +12,7 @@ import pandas as pd
 import ujson as json
 from box import Box
 from fastparquet import ParquetFile
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TimeRemainingColumn
 from tqdm import tqdm
 
 from src.globals import path_type
@@ -25,8 +26,10 @@ class Paths:
         self.temp_dir = self.basepath / 'ssikdar' / 'temp'
         self.aps_parq_dir = self.basepath / 'APS' / 'new' / 'parquets'
         self.aps_csv_dir = self.basepath / 'APS' / 'new' / 'csvs'
-        self.parq_dir = self.processed_dir / 'OPTIMIZED'
-        self.ix_path = self.parq_dir / 'indices'
+        # self.parq_dir = self.processed_dir / 'OPTIMIZED'
+        self.parq_dir = Path('/N/scratch/ssikdar/openalex')
+        # self.ix_path = self.parq_dir / 'indices'
+        self.ix_path = Path('/N/scratch/ssikdar/openalex/indices')
         return
 
 
@@ -130,10 +133,11 @@ class Indices:
         return
 
     def __getitem__(self, item: str):
+
         index = getattr(self, item)
         if index is None:
             tic = time.time()
-            print(f'Loading index for {item!r}')
+            # print(f'Loading index for {item!r} from {str(self.paths.ix_path/item)}')
             self.load_index(kind=item)
             toc = time.time()
             print(f'Index loaded in {toc - tic:.2g} seconds')
@@ -160,19 +164,19 @@ def get_partition_no(id_: int, kind: Optional[str] = None, ix_df: Optional[pd.Da
 
 
 def get_rows(id_: int, kind: str, paths: Paths, part_no: int, id_col: str = 'work_id'):
-    # if part_no is None:
-    #     part_no = get_partition_no(id_=id_, ix_df=ix_df, kind=kind)
-    # if part_no is None:  # still none
-    #     return None
-
     if isinstance(part_no, list):  # multiple partitions
-        part_df = pd.concat([pd.read_parquet(paths.parq_dir / kind / f'part.{n}.parquet',  # engine='fastparquet',
-                                             filters=[(id_col, '=', id_)])
-                             for n in part_no])
+        part_df = None
+        for n in part_no:
+            df = pd.read_parquet(paths.parq_dir / kind / f'part.{n}.parquet', filters=[(id_col, '=', id_)])
+            if part_df is None:
+                part_df = df
+            else:
+                part_df = pd.concat([part_df, df])
 
-    else:
-        part_df = pd.read_parquet(paths.parq_dir / kind / f'part.{part_no}.parquet',
-                                  filters=[(id_col, '=', id_)])
+    else:  # one partition
+        if pd.isna(part_no):
+            return
+        part_df = pd.read_parquet(paths.parq_dir / kind / f'part.{part_no}.parquet', filters=[(id_col, '=', id_)])
 
     return part_df
 
