@@ -7,7 +7,7 @@ Containers for different entities
 
 from dataclasses import dataclass, field
 from typing import Optional, List
-
+from rich.progress import Progress
 import pandas as pd
 import requests
 
@@ -28,8 +28,8 @@ class Institution:
 @dataclass
 class Author:
     author_id: int
-    position: str
-    name: str = field(default=None)
+    name: Optional[str] = field(default=None)
+    position: Optional[str] = None
     insts: List[Institution] = field(default_factory=lambda: [])
     url: Optional[str] = None
 
@@ -51,6 +51,7 @@ class Author:
         """
         Get all work ids for an author
         TODO:
+
         make a works class and use methods to populate info
         """
         session = requests.Session()
@@ -235,6 +236,10 @@ class Work:
             return
 
         authors_info = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no)
+
+        if authors_info is None:
+            return
+
         authors_info.loc[:, 'author_position'] = pd.Categorical(authors_info.author_position,
                                                                 categories=['first', 'middle', 'last'],
                                                                 ordered=True)
@@ -273,6 +278,8 @@ class Work:
             return
 
         concepts_rows = get_rows(id_=self.work_id, kind=kind, paths=self.paths, part_no=part_no)
+        if concepts_rows is None:
+            return
 
         concepts = []
         for row in concepts_rows.itertuples():
@@ -293,8 +300,11 @@ class Work:
         if part_no is None:
             return
 
-        refs_rows = get_rows(id_=self.work_id, kind=kind, id_col='referenced_work_id', part_no=part_no, paths=self.paths)
-        self.citing_works = set(refs_rows.work_id)
+        cites_rows = get_rows(id_=self.work_id, kind=kind, id_col='referenced_work_id', part_no=part_no, paths=self.paths)
+        if cites_rows is None:
+            return
+
+        self.citing_works = set(cites_rows.work_id)
         self.citations = len(self.citing_works)
         return
 
@@ -307,6 +317,9 @@ class Work:
         if part_no is None:
             return
         refs_rows = get_rows(id_=self.work_id, kind=kind, part_no=part_no, paths=self.paths)
+        if refs_rows is None:
+            return
+
         self.references = set(refs_rows.referenced_work_id)
         return
 
@@ -315,7 +328,7 @@ class Work:
         Return the co-cited works -- D = set of papers citing the paper,
         cocited papers = set of papers cited by papers in D
 
-        currently too slow -- optimize references call -- build a graph
+        currently too slow -- optimize references call -- build a graph?
         """
         cocited_papers = set()
 
@@ -325,10 +338,15 @@ class Work:
         if self.citations == 0:  # work has no citations, don't bother
             return  # cocited_papers
 
-        for citing_work_id in self.citing_works:
-            w = Work(work_id=citing_work_id, paths=self.paths)
-            w.populate_references(indices=indices)
-            cocited_papers.update(w.references)
+        with Progress(auto_refresh=False) as progress:
+            task = progress.add_task(f'Cocitations', total=self.citations, start=False)
+
+            for citing_work_id in self.citing_works:
+                w = Work(work_id=citing_work_id, paths=self.paths)
+                w.populate_references(indices=indices)
+                cocited_papers.update(w.references)
+                progress.update(task, advance=1)
+                progress.refresh()
 
         self.cocited_works = cocited_papers
         return  # cocited_papers
