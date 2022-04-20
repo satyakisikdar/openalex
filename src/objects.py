@@ -148,7 +148,7 @@ class Venue:
 @dataclass
 class Work:
     work_id: int
-    paths: Paths = field(repr=False)
+    paths: Paths = field(repr=False, default=None)
     partitions_dict: dict = field(default_factory=lambda: {}, repr=False)  # partition indices
 
     url: Optional[str] = None

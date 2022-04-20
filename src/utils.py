@@ -93,7 +93,7 @@ class Indices:
         """
         ix_path = self.paths.ix_path / kind
         if not ix_path.exists():
-            print(f'Index not found for {kind!r}')
+            # print(f'Index not found for {kind!r}')
             self.write_index(kind=kind)
 
         ix = pd.read_parquet(self.paths.ix_path / kind, engine='fastparquet', columns=[f'{kind}_part'])
@@ -156,7 +156,7 @@ def get_partition_no(id_: int, kind: Optional[str] = None, ix_df: Optional[pd.Da
         else:
             part_no = int(stuff)
     except KeyError:
-        print(f'{id_} not found in {kind!r}')
+        # print(f'{id_} not found in {kind!r}')
         return None
 
     return part_no
