@@ -7,12 +7,10 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import List, Dict, Optional, Union
 
-import numpy as np
 import pandas as pd
 import ujson as json
 from box import Box
 from fastparquet import ParquetFile
-from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TimeRemainingColumn
 from tqdm import tqdm
 
 from src.globals import path_type
@@ -28,6 +26,7 @@ class Paths:
         self.aps_csv_dir = self.basepath / 'APS' / 'new' / 'csvs'
         # self.parq_dir = self.processed_dir / 'OPTIMIZED'
         self.parq_dir = Path('/N/scratch/ssikdar/openalex')
+        self.compressed_path = self.parq_dir / 'compressed'
         # self.ix_path = self.parq_dir / 'indices'
         self.ix_path = Path('/N/scratch/ssikdar/openalex/indices')
         return

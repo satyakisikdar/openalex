@@ -7,9 +7,10 @@ Containers for different entities
 
 from dataclasses import dataclass, field
 from typing import Optional, List
-from rich.progress import Progress
+
 import pandas as pd
 import requests
+from rich.progress import Progress
 
 from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no
 
@@ -173,12 +174,12 @@ class Work:
         return
 
     def get_partition_info(self, kind: str, indices: Indices):
-        part_no = self.partitions_dict.get(kind)
-        if part_no is None:
+
+        if kind not in self.partitions_dict:
             part_no = get_partition_no(id_=self.work_id, kind=kind, ix_df=indices[kind])
             if part_no is None:  # not found
-                print(f'{self.work_id=} {kind!r} entry not found!')
-                self.partitions_dict[kind] = pd.NA  # prevents future lookups
+                # print(f'{self.work_id=} {kind!r} entry not found!')
+                self.partitions_dict[kind] = None  # prevents future lookups
             else:
                 self.partitions_dict[kind] = part_no
         return self.partitions_dict[kind]
@@ -298,11 +299,11 @@ class Work:
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
         if part_no is None:
+            self.citations = 0
+            self.citing_works = set()
             return
 
         cites_rows = get_rows(id_=self.work_id, kind=kind, id_col='referenced_work_id', part_no=part_no, paths=self.paths)
-        if cites_rows is None:
-            return
 
         self.citing_works = set(cites_rows.work_id)
         self.citations = len(self.citing_works)
@@ -315,10 +316,9 @@ class Work:
         kind = 'works_referenced_works'
         part_no = self.get_partition_info(kind=kind, indices=indices)
         if part_no is None:
+            self.references = set()
             return
         refs_rows = get_rows(id_=self.work_id, kind=kind, part_no=part_no, paths=self.paths)
-        if refs_rows is None:
-            return
 
         self.references = set(refs_rows.referenced_work_id)
         return
