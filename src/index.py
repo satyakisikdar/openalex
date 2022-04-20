@@ -1,6 +1,13 @@
 """
 For all the indexing stuff
+Do it for concepts, authorships, works
+
+Works: workid, type, title, venue id, date, year, citations, references, num_authors
+Works Authors: workid, num authors, author1, num_inst1, [inst1, inst2], author2, inst1, ...]
+Works Concepts: workid, num concepts, [concept1, score1, concept2, score2, ... ]
+Concept Works: concept_id,  num_works [work1, score1, work2, score2, ... ]
 """
+import abc
 import os
 import struct
 
@@ -10,16 +17,16 @@ from src.objects import Work
 from src.utils import Paths, Indices
 
 
-class RefIndex:
+class BaseIndexer:
     """
-    For indexing citations and references in binary format
-    format: #work_id #refs ref1 ref2 .. #citations cite1 cite2
+    Base class for indexers
     """
 
-    def __init__(self, paths: Paths, indices: Indices):
+    def __init__(self, paths: Paths, indices: Indices, kind: str):
         self.paths = paths
         self.indices = indices
-        self.index_path = self.paths.compressed_path / 'references'
+        self.kind = kind
+        self.index_path = self.paths.compressed_path / kind
         if not self.index_path.exists():
             os.makedirs(self.index_path)
 
@@ -29,7 +36,7 @@ class RefIndex:
         self.offsets = self.read_offsets()
         return
 
-    def read_offsets(self):
+    def read_offsets(self) -> pd.DataFrame:
         """
         Read offsets from a file
         :return:
@@ -40,30 +47,52 @@ class RefIndex:
 
         return pd.read_csv(self.offset_path, index_col=0, engine='c').to_dict('index')
 
-    @staticmethod
-    def get_bytes(w, refs, cites):
+    @abc.abstractmethod
+    def get_bytes(self, entity) -> bytes:
+        pass
+
+    @abc.abstractmethod
+    def process_entry(self, id_: int):
+        pass
+
+    @abc.abstractmethod
+    def parse_entry(self, offset: int):
+        pass
+
+
+class RefIndexer(BaseIndexer):
+    """
+    For indexing citations and references in binary format
+    format: #work_id #refs ref1 ref2 .. #citations cite1 cite2
+    """
+
+    def __init__(self, paths: Paths, indices: Indices):
+        super().__init__(paths, indices, kind='references')
+        return
+
+    def get_bytes(self, work: Work) -> bytes:
         """
         Return bytes for the work
         #work_id, number of references, w1, w2, ...., wn
         """
-        num_refs = len(refs)
+        num_refs = len(work.references)
 
         bites = [
             struct.pack('c', '#'.encode('utf-8')),  # add a # sign
-            struct.pack('Q', w),  # work id comes firs
+            struct.pack('Q', work.work_id),  # work id comes firs
             struct.pack('L', num_refs),  # number of references
         ]
 
         bites.extend(
-            struct.pack('Q', ref_w) for ref_w in refs
+            struct.pack('Q', ref_w) for ref_w in work.references
         )
 
         # add citations
-        num_cites = len(cites)
+        num_cites = len(work.citing_works)
         bites.append(struct.pack('L', num_cites))
 
         bites.extend(
-            struct.pack('Q', cite_w) for cite_w in cites
+            struct.pack('Q', cite_w) for cite_w in work.citing_works
         )
         return b''.join(bites)
 
@@ -83,8 +112,8 @@ class RefIndex:
         work.populate_references(self.indices)
         work.populate_citations(self.indices)
 
-        bites = self.get_bytes(w=work_id, refs=work.references, cites=work.citing_works)
-        print(f'{work_id=} has {len(work.references)} references {work.citations} citations {len(bites)} bytes')
+        bites = self.get_bytes(work=work)
+        # print(f'{work_id=} has {len(work.references)} references {work.citations} citations {len(bites)} bytes')
 
         if len(self.offsets) == 0:
             previous_offset = 0
@@ -102,24 +131,28 @@ class RefIndex:
 
         return
 
-    @staticmethod
-    def read_stuff(reader, offset):
-        reader.seek(offset, 0)
-        h_, = struct.unpack('c', reader.read(1))
-        id_, = struct.unpack('Q', reader.read(8))
-        print(f'reading work_id: {id_}')
-        num_refs, = struct.unpack('L', reader.read(8))
-        print(f'References: {num_refs}')
-        refs = []
-        for _ in range(num_refs):
-            ref_, = struct.unpack('Q', reader.read(8))
-            refs.append(ref_)
+    def parse_entry(self, offset: int) -> Work:
+        with open(self.data_path, 'rb') as reader:
+            reader.seek(offset)
+            h_, = struct.unpack('c', reader.read(1))
+            assert h_.decode('utf-8') == '#', 'missing #, something wrong with the index'
 
-        num_cites, = struct.unpack('L', reader.read(8))
-        print(f'Citations: {num_cites}')
-        cites = []
-        for _ in range(num_cites):
-            cite_, = struct.unpack('Q', reader.read(8))
-            cites.append(cite_)
+            id_, = struct.unpack('Q', reader.read(8))
 
-        return h_, id_, num_refs, refs, cites
+            print(f'reading work_id: {id_}')
+            num_refs, = struct.unpack('L', reader.read(8))
+            print(f'References: {num_refs}')
+            refs = set()
+            for _ in range(num_refs):
+                ref_, = struct.unpack('Q', reader.read(8))
+                refs.add(ref_)
+
+            num_cites, = struct.unpack('L', reader.read(8))
+            print(f'Citations: {num_cites}')
+            cites = set()
+            for _ in range(num_cites):
+                cite_, = struct.unpack('Q', reader.read(8))
+                cites.add(cite_)
+
+        work = Work(work_id=id_, references=refs, citing_works=cites, citations=num_cites)
+        return work
