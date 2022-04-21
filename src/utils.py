@@ -197,6 +197,8 @@ def strip_accents(s):
 
 
 def clean_string(s: str) -> str:
+    if s is None:
+        return ''
     s_ = strip_accents(s)
     s_ = ''.join([i if ord(i) < 128 else ' ' for i in s_])
     if s_.isascii():
