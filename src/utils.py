@@ -1,6 +1,7 @@
 import ast
 import gzip
 import multiprocessing
+import string
 import time
 import unicodedata
 from datetime import datetime
@@ -193,6 +194,15 @@ def get_rows(id_: int, kind: str, paths: Paths, part_no: int, id_col: str = 'wor
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
                    if unicodedata.category(c) != 'Mn')
+
+
+def clean_string(s: str) -> str:
+    s_ = strip_accents(s)
+    s_ = ''.join([i if ord(i) < 128 else ' ' for i in s_])
+    if s_.isascii():
+        return s_
+    else:
+        return ''
 
 # Read file list from MANIFEST
 def read_manifest(kind: str, paths: Paths) -> Box:

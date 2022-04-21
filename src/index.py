@@ -14,7 +14,7 @@ import pandas as pd
 
 from src.encoder import EncoderDecoder
 from src.objects import Work
-from src.utils import Paths, IDMap, reconstruct_abstract, strip_accents
+from src.utils import Paths, IDMap, reconstruct_abstract, strip_accents, clean_string
 
 
 class BaseIndexer:
@@ -178,6 +178,7 @@ class WorkIndexer(BaseIndexer):
         work = Work(work_id=work_id, paths=self.paths)
         work.populate_info(indices=self.indices)
         work.populate_venue(indices=self.indices, id_map=self.id_map)
+        work.populate_authors(indices=self.indices)
         bites = self.convert_to_bytes(work=work)
 
         self.write_index(id_=work_id, bites=bites)
@@ -190,9 +191,7 @@ class WorkIndexer(BaseIndexer):
             self.encoder.encode_work_type(typ=work.type)
         ]
 
-        cleaned_title = strip_accents(work.title)
-        if not cleaned_title.isascii():  # dont write title if it's not ascii after cleaning
-            cleaned_title = ''
+        cleaned_title = clean_string(work.title)
 
         bites.extend([
             self.encoder.encode_string(string=work.doi),  # DOI
@@ -204,13 +203,14 @@ class WorkIndexer(BaseIndexer):
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
 
-        abstract = reconstruct_abstract(work.abstract_inverted_index)  # abstract
-        if not abstract.isascii():  # dont write non-ascii abstracts
-            abstract = ''
+        abstract = clean_string(reconstruct_abstract(work.abstract_inverted_index))  # abstract
 
         bites.append(self.encoder.encode_string(abstract))
-        # TODO: consider adding number of references and citations to the byte array
 
+        # add author info
+        # num_authors, author1, inst1, inst2, ... , author2, ..
+
+        # add concept info
         return b''.join(bites)
 
     def parse_bytes(self, offset: int, reader=None) -> Work:
