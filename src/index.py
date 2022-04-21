@@ -171,18 +171,20 @@ class WorkIndexer(BaseIndexer):
         self.id_map = id_map
         return
 
-    def process_entry(self, work_id: int):
-        if work_id in self.offsets:  # already computed
+    def process_entry(self, work_id: int, write: bool = True):
+        if write and work_id in self.offsets:  # already computed
             return
 
         work = Work(work_id=work_id, paths=self.paths)
         work.populate_info(indices=self.indices)
         work.populate_venue(indices=self.indices, id_map=self.id_map)
         work.populate_authors(indices=self.indices)
+        work.populate_concepts(indices=self.indices, id_map=self.id_map)
         bites = self.convert_to_bytes(work=work)
 
-        self.write_index(id_=work_id, bites=bites)
-        return
+        if write:
+            self.write_index(id_=work_id, bites=bites)
+        return bites
 
     def convert_to_bytes(self, work) -> bytes:
         bites = [
@@ -204,13 +206,21 @@ class WorkIndexer(BaseIndexer):
         ])
 
         abstract = clean_string(reconstruct_abstract(work.abstract_inverted_index))  # abstract
-
         bites.append(self.encoder.encode_string(abstract))
 
         # add author info
-        # num_authors, author1, inst1, inst2, ... , author2, ..
+        bites.append(self.encoder.encode_int(i=len(work.authors)))  # number of authors
+
+        bites.extend([
+            self.encoder.encode_author(author=auth) for auth in work.authors  # add authors
+        ])
 
         # add concept info
+        bites.append(self.encoder.encode_int(i=len(work.concepts)))
+
+        bites.extend([
+            self.encoder.encode_concept(concept=concept) for concept in work.concepts
+        ])
         return b''.join(bites)
 
     def parse_bytes(self, offset: int, reader=None) -> Work:
@@ -242,11 +252,23 @@ class WorkIndexer(BaseIndexer):
         print(f'{date=}')
 
         venue = self.decoder.decode_venue(reader)
+        print(f'{venue=}')
 
         abstract = self.decoder.decode_string(reader)
+        print(f'{abstract=}')
+
+        num_authors = self.decoder.decode_int(reader)
+        print(f'{num_authors=}')
+
+        authors = [self.decoder.decode_author(reader) for _ in range(num_authors)]
+
+        num_concepts = self.decoder.decode_int(reader)
+        print(f'{num_concepts=}')
+
+        concepts = [self.decoder.decode_concept(reader) for _ in range(num_concepts)]
         reader.close()
 
         work = Work(work_id=work_id, part_no=part_no, type=work_type, doi=doi, title=title, publication_year=year,
-                    publication_date=date, venue=venue, abstract=abstract)
+                    publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
 
         return work
