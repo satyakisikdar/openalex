@@ -19,7 +19,7 @@ from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no
 class Institution:
     institution_id: int
     name: str
-    url: str = None
+    url: Optional[str] = field(default=None, repr=False)
 
     def __post_init__(self):
         self.url = f'https://openalex.org/I{self.institution_id}'
@@ -32,7 +32,7 @@ class Author:
     name: Optional[str] = field(default=None)
     position: Optional[str] = None
     insts: List[Institution] = field(default_factory=lambda: [])
-    url: Optional[str] = None
+    url: Optional[str] = field(default=None, repr=False)
 
     def __post_init__(self):
         self.url = f'https://openalex.org/A{self.author_id}'
@@ -89,7 +89,7 @@ class Concept:
     score: Optional[float] = None
     name: Optional[str] = None
     level: Optional[int] = None
-    url: Optional[str] = None
+    url: Optional[str] = field(default=None, repr=False)
     tagged_works: Optional[list] = field(default_factory=lambda: [], repr=False)
     works_count: Optional[int] = None
 
@@ -138,7 +138,7 @@ class Concept:
 class Venue:
     venue_id: int
     name: str
-    url: str = None
+    url: Optional[str] = field(default=None, repr=False)
 
     def __post_init__(self):
         self.url = f'https://openalex.org/V{self.venue_id}'
