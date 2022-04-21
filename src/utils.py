@@ -2,6 +2,7 @@ import ast
 import gzip
 import multiprocessing
 import time
+import unicodedata
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
@@ -139,7 +140,7 @@ class Indices:
             # print(f'Loading index for {item!r} from {str(self.paths.ix_path/item)}')
             self.load_index(kind=item)
             toc = time.time()
-            print(f'Index loaded in {toc - tic:.2g} seconds')
+            print(f'{item!r} Index loaded in {toc - tic:.2g} seconds')
         index = getattr(self, item)  # try again
         assert index is not None, 'Setting index did not work'
         return index
@@ -166,7 +167,12 @@ def get_rows(id_: int, kind: str, paths: Paths, part_no: int, id_col: str = 'wor
     if isinstance(part_no, list):  # multiple partitions
         part_df = None
         for n in part_no:
-            df = pd.read_parquet(paths.parq_dir / kind / f'part.{n}.parquet', filters=[(id_col, '=', id_)])
+            # df = pd.read_parquet(paths.parq_dir / kind / f'part.{n}.parquet', filters=[(id_col, '=', id_)])
+            df = (
+                ParquetFile(paths.parq_dir / kind / f'part.{n}.parquet')
+                    .to_pandas(filters=[(id_col, '=', id_)])
+                    .loc[[id_]]
+            )
             if part_df is None:
                 part_df = df
             else:
@@ -175,11 +181,18 @@ def get_rows(id_: int, kind: str, paths: Paths, part_no: int, id_col: str = 'wor
     else:  # one partition
         if pd.isna(part_no):
             return
-        part_df = pd.read_parquet(paths.parq_dir / kind / f'part.{part_no}.parquet', filters=[(id_col, '=', id_)])
-
+        # part_df = pd.read_parquet(paths.parq_dir / kind / f'part.{part_no}.parquet', filters=[(id_col, '=', id_)])
+        part_df = (
+            ParquetFile(paths.parq_dir / kind / f'part.{part_no}.parquet')
+                .to_pandas(filters=[(id_col, '=', id_)])
+                .loc[[id_]]
+        )
     return part_df
 
 
+def strip_accents(s):
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
 
 # Read file list from MANIFEST
 def read_manifest(kind: str, paths: Paths) -> Box:
@@ -314,6 +327,27 @@ def construct_abstracts(inv_abstracts):
             abstract = None
         abstracts.append(abstract)
     return abstracts
+
+
+def reconstruct_abstract(inv_abstract_st):
+    if inv_abstract_st is None:
+        return ''
+
+    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
+    if isinstance(inv_abstract_st, bytes):
+        inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
+
+    inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
+    abstract_dict = {}
+    for word, locs in inv_abstract.items():  # invert the inversion
+        for loc in locs:
+            abstract_dict[loc] = word
+    abstract = ' '.join(map(lambda x: x[1],  # pick the words
+                            sorted(abstract_dict.items())))  # sort abstract dictionary by indices
+    if len(abstract) == 0:
+        abstract = ''
+    return abstract
+
 
 #
 # def blah:
