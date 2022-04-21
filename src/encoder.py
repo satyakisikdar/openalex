@@ -3,7 +3,8 @@ Houses the encoder decoder class - moved out of utils to prevent a circular impo
 """
 import struct
 
-from src.objects import Venue
+from src.objects import Venue, Institution, Author
+from src.utils import clean_string
 
 
 class EncoderDecoder:
@@ -110,3 +111,70 @@ class EncoderDecoder:
             return None
         venue_name = self.decode_string(reader)
         return Venue(venue_id=venue_id, name=venue_name)
+
+    def encode_author(self, author) -> bytes:
+        if author is None:
+            author_id = 0
+            author_name = ''
+            position = ''
+            num_insts = 0  # number of institutions
+            insts = []
+        else:
+            author_id = author.author_id
+            author_name = author.name
+            position = author.position[0]
+            if author.insts[0] is None:  # no inst info available
+                num_insts = 0
+                insts = []
+            else:
+                num_insts = len(author.insts)
+                insts = author.insts
+
+        bites = [
+            self.encode_long_long_int(lli=author_id),  # author id
+            self.encode_string(string=clean_string(author_name)),  # author name
+            self.encode_string(string=position),  # author position
+
+            self.encode_int(i=num_insts),   # number of institutes
+        ]
+
+        # inst info
+        bites.extend([
+            self.encode_institute(inst=inst) for inst in insts
+        ])
+        return b''.join(bites)
+
+    def decode_author(self, reader) -> Author:
+        author_id = self.decode_long_long_int(reader)
+        if author_id == 0:
+            return None
+        author_name = self.decode_string(reader)
+        position = self.decode_string(reader)
+
+        num_inst = self.decode_int(reader)
+        if num_inst == 0:
+            insts = [None]
+        else:
+            insts = [self.decode_institute(reader) for _ in range(num_inst)]
+
+        return Author(author_id=author_id, name=author_name, position=position, insts=insts)
+
+    def encode_institute(self, inst) -> bytes:
+        if inst is None:
+            inst_id = 0
+            inst_name = ''
+        else:
+            inst_id = inst.institution_id
+            inst_name = clean_string(inst.name)
+
+        return b''.join([
+            self.encode_long_long_int(lli=inst_id),
+            self.encode_string(string=inst_name)
+        ])
+
+    def decode_institute(self, reader) -> Institution:
+        inst_id = self.decode_long_long_int(reader)
+        if inst_id == 0:
+            return None
+        inst_name = self.decode_string(reader)
+        return Institution(institution_id=inst_id, name=inst_name)
