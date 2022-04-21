@@ -136,7 +136,7 @@ class Concept:
 
 @dataclass
 class Venue:
-    venue_id: str
+    venue_id: int
     name: str
     url: str = None
 
@@ -151,25 +151,27 @@ class Work:
     paths: Paths = field(repr=False, default=None)
     partitions_dict: dict = field(default_factory=lambda: {}, repr=False)  # partition indices
 
-    url: Optional[str] = None
+    url: Optional[str] = field(default=None, repr=False)
     part_no: Optional[int] = None
     type: Optional[str] = None
     doi: Optional[str] = None
     title: Optional[str] = None
-    abstract: Optional[str] = None
     publication_year: Optional[int] = None
     publication_date: Optional[str] = None
     venue: Optional[Venue] = None
+    abstract: Optional[str] = field(default=None, repr=False)
     abstract_inverted_index: Optional[str] = field(default=None, repr=False)
     authors: List[Author] = field(default_factory=lambda: [])
     concepts: List[Concept] = field(default_factory=lambda: [])
     citations: int = None  # number of citations
-    references: set = field(default=None, repr=False)     # set of reference works
-    citing_works: set = field(default=None, repr=False)   # set of citing works
+    references: set = field(default=None, repr=False)  # set of reference works
+    citing_works: set = field(default=None, repr=False)  # set of citing works
     cocited_works: set = field(default=None, repr=False)  # set of co-cited works
 
     def __post_init__(self):
         self.url = f'https://openalex.org/W{self.work_id}'
+        if self.citing_works is not None:
+            self.citations = len(self.citing_works)
         ## TODO: replace populate_info with an API call?
         return
 
@@ -188,7 +190,7 @@ class Work:
         """
         Populate basic info
         """
-        print('Populating info')
+        # print('Populating info')
         kind = 'works'
         part_no = self.get_partition_info(kind=kind, indices=indices)
 
@@ -204,7 +206,7 @@ class Work:
         """
         Populate host venue
         """
-        print('Populating venue')
+        # print('Populating venue')
         kind = 'works_host_venues'
         part_no = self.get_partition_info(kind=kind, indices=indices)
 
@@ -303,7 +305,8 @@ class Work:
             self.citing_works = set()
             return
 
-        cites_rows = get_rows(id_=self.work_id, kind=kind, id_col='referenced_work_id', part_no=part_no, paths=self.paths)
+        cites_rows = get_rows(id_=self.work_id, kind=kind, id_col='referenced_work_id', part_no=part_no,
+                              paths=self.paths)
 
         self.citing_works = set(cites_rows.work_id)
         self.citations = len(self.citing_works)
