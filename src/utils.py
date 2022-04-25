@@ -1,7 +1,6 @@
 import ast
 import gzip
 import multiprocessing
-import string
 import time
 import unicodedata
 from datetime import datetime
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Union
 
 import pandas as pd
+import requests
 import ujson as json
 from box import Box
 from fastparquet import ParquetFile
@@ -39,6 +39,7 @@ class IDMap:
     Stores the id to name mappings for concepts and venues
     store concept levels as well
     """
+
     def __init__(self, paths: Paths):
         self.venue_id2name = (
             pd.read_parquet(paths.processed_dir / 'venues', columns=['id', 'display_name'], engine='fastparquet')
@@ -51,25 +52,42 @@ class IDMap:
         )
 
         concepts_df = (
-            pd.read_parquet(paths.processed_dir / 'concepts', columns=['id', 'display_name', 'level'], engine='fastparquet')
-            .assign(idx=lambda df_: pd.to_numeric(
+            pd.read_parquet(paths.processed_dir / 'concepts', columns=['id', 'display_name', 'level'],
+                            engine='fastparquet')
+                .assign(idx=lambda df_: pd.to_numeric(
                 df_.id.str.replace('https://openalex.org/C', '', regex=False)))
-            .set_index('idx')
+                .set_index('idx')
         )
 
         self.concept_id2name = (
             concepts_df
-            .display_name
-            .to_dict()
+                .display_name
+                .to_dict()
         )
 
         self.concept_id2level = (
             concepts_df
-            .level
-            .to_dict()
+                .level
+                .to_dict()
         )
 
         return
+
+
+def get_author_id(name) -> int:
+    cached = {'Santo': 'A2122189410', 'Santo Fortunato': 'A2122189410', 'Barabasi': 'A2195478976',
+              'Mark Newman': 'A2394749673', 'Parisi': 'A2163147449', 'Cirac': 'A2103728845',
+              'Vespignani': 'A2707826896', 'Satyaki': 'A2297758725', 'Fortunato': 'A2122189410',
+              'Filippo': 'A842233868', 'Tim': 'A2037649753'}
+    if name in cached:
+        id_ = cached[name]
+    else:
+        url = f'https://api.openalex.org/authors?filter=display_name.search:{name}'
+        json = requests.get(url, params={'mailto': 'ssikdar@iu.edu'}).json()
+        # pick the top result
+        id_ = json['results'][0]['id'].replace('https://openalex.org/', '')
+        ""
+    return int(id_.replace('A', ''))
 
 
 class Indices:
@@ -77,6 +95,7 @@ class Indices:
     container for indices, lazily load stuff
     implement __get__ method
     """
+
     def __init__(self, paths: Paths):
         self.paths = paths
         self.works = None
@@ -205,6 +224,7 @@ def clean_string(s: str) -> str:
         return s_
     else:
         return ''
+
 
 # Read file list from MANIFEST
 def read_manifest(kind: str, paths: Paths) -> Box:
@@ -494,5 +514,3 @@ if __name__ == '__main__':
     paths = Paths()
     df = pd.read_parquet(paths.processed_dir / 'authors')
     print(len(df))
-
-
