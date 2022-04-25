@@ -115,7 +115,7 @@ class Concept:
             print('Already tagged')
             return
 
-        print('Getting works tagged with the concept')
+        print(f'Getting works tagged with concept: {self.name!r}')
         kind = 'concepts_works'
 
         part_no = get_partition_no(id_=self.concept_id, kind=kind, ix_df=indices[kind])
