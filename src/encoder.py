@@ -2,8 +2,9 @@
 Houses the encoder decoder class - moved out of utils to prevent a circular import
 """
 import struct
+from typing import Optional
 
-from src.objects import Venue, Institution, Author, Concept
+import src.objects as objects
 from src.utils import clean_string
 
 
@@ -113,13 +114,13 @@ class EncoderDecoder:
             self.encode_string(string=venue_name)
         ])
 
-    def decode_venue(self, reader) -> Venue:
+    def decode_venue(self, reader) -> Optional[objects.Venue]:
         venue_id = self.decode_long_long_int(reader)
         venue_name = self.decode_string(reader)
         if venue_id == 0:
             return None
         else:
-            return Venue(venue_id=venue_id, name=venue_name)
+            return objects.Venue(venue_id=venue_id, name=venue_name)
 
     def encode_author(self, author) -> bytes:
         if author is None:
@@ -153,7 +154,7 @@ class EncoderDecoder:
         ])
         return b''.join(bites)
 
-    def decode_author(self, reader) -> Author:
+    def decode_author(self, reader) -> Optional[objects.Author]:
         author_id = self.decode_long_long_int(reader)
         author_name = self.decode_string(reader)
         position = self.decode_string(reader)
@@ -166,7 +167,7 @@ class EncoderDecoder:
         if author_id == 0:
             return None
         else:
-            return Author(author_id=author_id, name=author_name, position=position, insts=insts)
+            return objects.Author(author_id=author_id, name=author_name, position=position, insts=insts)
 
     def encode_institute(self, inst) -> bytes:
         if inst is None:
@@ -181,13 +182,13 @@ class EncoderDecoder:
             self.encode_string(string=inst_name)
         ])
 
-    def decode_institute(self, reader) -> Institution:
+    def decode_institute(self, reader) -> Optional[objects.Institution]:
         inst_id = self.decode_long_long_int(reader)
         inst_name = self.decode_string(reader)
         if inst_id == 0:
             return None
         else:
-            return Institution(institution_id=inst_id, name=inst_name)
+            return objects.Institution(institution_id=inst_id, name=inst_name)
 
     def encode_concept(self, concept) -> bytes:
         if concept is None:
@@ -208,7 +209,7 @@ class EncoderDecoder:
             self.encode_int(i=level)
         ])
 
-    def decode_concept(self, reader) -> Concept:
+    def decode_concept(self, reader) -> Optional[objects.Concept]:
         concept_id = self.decode_long_long_int(reader)
         name = self.decode_string(reader)
         score = round(self.decode_float(reader), 3)
@@ -216,4 +217,4 @@ class EncoderDecoder:
         if concept_id == 0:
             return None
         else:
-            return Concept(concept_id=concept_id, name=name, score=score, level=level)
+            return objects.Concept(concept_id=concept_id, name=name, score=score, level=level)

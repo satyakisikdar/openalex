@@ -12,9 +12,8 @@ import os
 
 import pandas as pd
 
-from src.encoder import EncoderDecoder
-from src.objects import Work
-from src.utils import Paths, IDMap, reconstruct_abstract, strip_accents, clean_string
+import src.objects as objects
+from src.utils import Paths, IDMap, reconstruct_abstract, clean_string
 
 
 class BaseIndexer:
@@ -23,6 +22,7 @@ class BaseIndexer:
     """
 
     def __init__(self, paths: Paths, indices, kind: str):
+        import src.encoder as encoder
         self.paths = paths
         self.indices = indices
         self.kind = kind
@@ -34,8 +34,8 @@ class BaseIndexer:
         self.data_path = self.index_path / 'data.txt'
         self.offsets = self.read_offsets()
 
-        self.encoder = EncoderDecoder()
-        self.decoder = EncoderDecoder()  # just me being lazy
+        self.encoder = encoder.EncoderDecoder()
+        self.decoder = encoder.EncoderDecoder()  # just me being lazy
         return
 
     def read_offsets(self) -> pd.DataFrame:
@@ -93,7 +93,7 @@ class RefIndexer(BaseIndexer):
         super().__init__(paths, indices, kind='references')
         return
 
-    def convert_to_bytes(self, work: Work) -> bytes:
+    def convert_to_bytes(self, work: objects.Work) -> bytes:
         """
         Return bytes for the work
         #work_id, number of references, w1, w2, ...., wn
@@ -130,7 +130,7 @@ class RefIndexer(BaseIndexer):
         if work_id in self.offsets:  # already computed
             return
 
-        work = Work(work_id=work_id, paths=self.paths)
+        work = objects.Work(work_id=work_id, paths=self.paths)
         work.populate_references(self.indices)
         work.populate_citations(self.indices)
 
@@ -138,26 +138,26 @@ class RefIndexer(BaseIndexer):
         self.write_index(bites=bites, id_=work_id)
         return
 
-    def parse_bytes(self, offset: int, reader=None) -> Work:
+    def parse_bytes(self, offset: int, reader=None) -> (int, set, set):
         if reader is None:
             reader = open(self.data_path, 'rb')
 
         reader.seek(offset)
 
         work_id = self.decoder.decode_id(reader)
-        print(f'{work_id=}')
+        # print(f'{work_id=}')
 
         num_refs = self.decoder.decode_long_int(reader)
-        print(f'{num_refs=}')
+        # print(f'{num_refs=}')
 
         refs = {self.decoder.decode_long_long_int(reader) for _ in range(num_refs)}
 
         num_cites = self.decoder.decode_long_int(reader)
-        print(f'{num_cites=}')
+        # print(f'{num_cites=}')
 
         cites = {self.decoder.decode_long_long_int(reader) for _ in range(num_cites)}
 
-        return Work(work_id=work_id, citing_works=cites, references=refs)
+        return work_id, refs, cites
 
 
 class WorkIndexer(BaseIndexer):
@@ -175,7 +175,7 @@ class WorkIndexer(BaseIndexer):
         if write and work_id in self.offsets:  # already computed
             return
 
-        work = Work(work_id=work_id, paths=self.paths)
+        work = objects.Work(work_id=work_id, paths=self.paths)
         work.populate_info(indices=self.indices)
         work.populate_venue(indices=self.indices, id_map=self.id_map)
         work.populate_authors(indices=self.indices)
@@ -223,52 +223,53 @@ class WorkIndexer(BaseIndexer):
         ])
         return b''.join(bites)
 
-    def parse_bytes(self, offset: int, reader=None) -> Work:
+    def parse_bytes(self, offset: int, reader=None) -> objects.Work:
         if reader is None:
             reader = open(self.data_path, 'rb')
         reader.seek(offset)
 
         work_id = self.decoder.decode_id(reader)
-        print(f'{work_id=}')
+        # print(f'{work_id=}')
 
         part_no = self.decoder.decode_int(reader)
-        print(f'{part_no=}')
+        # print(f'{part_no=}')
 
         work_type = self.decoder.decode_work_type(reader)
-        print(f'{work_type=}')
+        # print(f'{work_type=}')
 
         doi = self.decoder.decode_string(reader)
-        print(f'{doi=}')
+        # print(f'{doi=}')
 
         title = self.decoder.decode_string(reader)
-        print(f'{title=}')
+        # print(f'{title=}')
 
         year = self.decoder.decode_int(reader)
-        print(f'{year=}')
+        # print(f'{year=}')
 
         assert year < 3000, f'year {year} out of range!'
 
         date = self.decoder.decode_string(reader)
-        print(f'{date=}')
+        # print(f'{date=}')
 
         venue = self.decoder.decode_venue(reader)
-        print(f'{venue=}')
+        # print(f'{venue=}')
 
         abstract = self.decoder.decode_string(reader)
-        print(f'{abstract=}')
+        # print(f'{abstract=}')
 
         num_authors = self.decoder.decode_int(reader)
-        print(f'{num_authors=}')
+        # print(f'{num_authors=}')
 
         authors = [self.decoder.decode_author(reader) for _ in range(num_authors)]
 
         num_concepts = self.decoder.decode_int(reader)
-        print(f'{num_concepts=}')
+        # print(f'{num_concepts=}')
 
         concepts = [self.decoder.decode_concept(reader) for _ in range(num_concepts)]
         reader.close()
 
-        work = Work(work_id=work_id, part_no=part_no, type=work_type, doi=doi, title=title, publication_year=year,
-                    publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
+        work = objects.Work(work_id=work_id, part_no=part_no, type=work_type, doi=doi, title=title,
+                            publication_year=year,
+                            publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
 
         return work

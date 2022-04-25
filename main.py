@@ -1,56 +1,52 @@
 import sys
+
 sys.path.extend(['../', './'])
+from tqdm.auto import tqdm
 
-from src.entities import Authors, Works, Institutions, Concepts, Venues
-from src.utils import Paths
+from src.entities import Works
+from src.utils import Paths, Indices, IDMap
+from src.index import WorkIndexer
 
 
-def parse_authors(num_workers):
+def parse(num_workers):
+    # TODO: double check files for each entity in all the directories - recompute the stuff that's needed
     paths = Paths()
-    authors = Authors(paths=paths)
-    print(authors)
-    ent = Authors(paths=paths)
-    authors.process(num_workers=num_workers)
+    things = Works(paths=paths)
+    # things = Authors(paths=paths)
+    print(things)
+    things.validate_tables(delete=False, start=200)
+    things.process(num_workers=num_workers)
+    # things.compute_missing_tables()
     return
 
 
-def parse_works(num_workers):
+def index_refs(num_workers):
     paths = Paths()
-    works = Works(paths=paths)
-    print(works)
-    works.process(num_workers=num_workers, max_len=50)
+    indices = Indices(paths=paths)
+    indices = Indices(paths=paths)
+    id_map = IDMap(paths=paths)
+
+    work_ids = indices['works'].index
+    
+    # ref_index = RefIndexer(paths=paths, indices=indices)
+    # for work_id in tqdm(work_ids):
+    # ref_index.process_entry(work_id=work_id)
+    # return
+
+    work_indexer = WorkIndexer(paths=paths, indices=indices, id_map=id_map)
+    for work_id in tqdm(work_ids):
+        work_indexer.process_entry(work_id=work_id)
     return
-
-
-def parse_institutes(num_workers):
-    paths = Paths()
-    inst = Institutions(paths=paths)
-    print(inst)
-    inst.process(num_workers=num_workers)
-    return
-
-
-def parse_concepts(num_workers):
-    paths = Paths()
-    concepts = Concepts(paths=paths)
-    print(concepts)
-    concepts.process(num_workers=num_workers)
-    return
-
-
-def parse_venues(num_workers):
-    paths = Paths()
-    venues = Venues(paths=paths)
-    print(venues)
-    venues.process(num_workers=num_workers)
+    #
+    # with parallel_backend('threading', n_jobs=num_workers):
+    #     Parallel()(
+    #         delayed(ref_index.process_entry)(work_id) for work_id in tqdm(work_ids)
+    #     )
 
 
 def main():
-    # parse_authors(num_workers=4)
-    # parse_works(num_workers=5)
-    # parse_institutes(num_workers=2)
-    # parse_concepts(num_workers=2)
-    parse_venues(num_workers=2)
+    # parse(num_workers=6)
+    index_refs(num_workers=10)
     return
 
 
