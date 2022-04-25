@@ -108,7 +108,7 @@ class EncoderDecoder:
 
     def encode_venue(self, venue) -> bytes:
         venue_id = venue.venue_id if venue is not None else 0
-        venue_name = venue.name if venue is not None else ''
+        venue_name = clean_string(venue.name) if venue is not None else ''
         return b''.join([
             self.encode_long_long_int(lli=venue_id),
             self.encode_string(string=venue_name)
