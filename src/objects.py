@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 from rich.progress import Progress
 
+# import src.index as indexer
 from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no
 
 
@@ -68,8 +69,6 @@ class Author:
         print(f'{self.author_id=} {self.name=} {works_count=:,} {num_pages=:,}')
 
         work_ids = [int(res['id'].replace('https://openalex.org/W', '')) for res in data['results']]
-        years = [res['publication_year'] for res in data['results']]
-
         if num_pages > 1:
             for page in range(2, num_pages + 1):
                 new_url = url + f'&page={page}'
@@ -158,11 +157,11 @@ class Work:
     title: Optional[str] = None
     publication_year: Optional[int] = None
     publication_date: Optional[str] = None
-    venue: Optional[Venue] = None
+    venue: Optional[Venue] = field(default=None, repr=False)
     abstract: Optional[str] = field(default=None, repr=False)
     abstract_inverted_index: Optional[str] = field(default=None, repr=False)
-    authors: List[Author] = field(default_factory=lambda: [])
-    concepts: List[Concept] = field(default_factory=lambda: [])
+    authors: List[Author] = field(default_factory=lambda: [], repr=False)
+    concepts: List[Concept] = field(default_factory=lambda: [], repr=False)
     citations: int = None  # number of citations
     references: set = field(default=None, repr=False)  # set of reference works
     citing_works: set = field(default=None, repr=False)  # set of citing works
@@ -185,6 +184,46 @@ class Work:
             else:
                 self.partitions_dict[kind] = part_no
         return self.partitions_dict[kind]
+
+    def load(self, ref_indexer=None, work_indexer=None, compute: bool = True):
+        """
+        Try to load the object from the indices
+        If compute is True, compute and update the index
+        """
+        if work_indexer is not None:
+            # work_indexer.read_offsets()
+            work_offset = work_indexer.offsets.get(self.work_id, {}).get('offset')
+            if work_offset is None and compute:
+                work_indexer.process_entry(work_id=self.work_id)
+                work_offset = work_indexer.offsets[self.work_id]['offset']
+                # print(f'{self.work_id=} {work_offset=}')
+            if work_offset is not None:
+                # load the work info
+                w = work_indexer.parse_bytes(offset=work_offset)
+                for att in dir(w):
+                    if att.startswith('_'):
+                        continue
+                    setattr(self, att, getattr(w, att))
+
+        # try to load the references and citations
+        if ref_indexer is not None:
+            # ref_indexer.read_offsets()
+            ref_offset = ref_indexer.offsets.get(self.work_id, {}).get('offset')
+
+            if ref_offset is None and compute:
+                ref_indexer.process_entry(work_id=self.work_id)
+                ref_offset = ref_indexer.offsets[self.work_id]['offset']
+                # print(f'{self.work_id=} {ref_offset=}')
+            if ref_offset is not None:
+                # load the ref index
+                work_id, refs, cites = ref_indexer.parse_bytes(offset=ref_offset)
+                assert work_id == self.work_id, f'Work ids in index does not match'
+
+                self.references = refs
+                self.citations = len(cites)
+                self.citing_works = cites
+
+        return
 
     def populate_info(self, indices: Indices):
         """
@@ -230,7 +269,7 @@ class Work:
         """
         Add list of authors
         """
-        print('Getting authorship data')
+        # print('Getting authorship data')
         kind = 'works_authorships'
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
@@ -272,7 +311,7 @@ class Work:
         """
         Add list of concepts
         """
-        print('Getting Concepts info')
+        # print('Getting Concepts info')
         kind = 'works_concepts'
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
