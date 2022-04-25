@@ -30,7 +30,7 @@ class Paths:
         self.parq_dir = Path('/N/scratch/ssikdar/openalex')
         self.compressed_path = self.parq_dir / 'compressed'
         # self.ix_path = self.parq_dir / 'indices'
-        self.ix_path = Path('/N/scratch/ssikdar/openalex/indices')
+        self.ix_path = Path('/N/scratch/ssikdar/openalex/indices')  # compressed index stored here
         return
 
 
