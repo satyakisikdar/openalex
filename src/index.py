@@ -14,6 +14,7 @@ import pandas as pd
 
 import src.objects as objects
 from src.utils import Paths, IDMap, reconstruct_abstract, clean_string
+from tqdm.auto import tqdm
 
 
 class BaseIndexer:
@@ -81,6 +82,93 @@ class BaseIndexer:
     @abc.abstractmethod
     def parse_bytes(self, offset: int, reader=None):
         pass
+
+    def validate_and_fix_index(self, fix: bool = True):
+        """
+        Validate the index by matching the work id / concept id from the extracted object with that of the offset file
+        """
+        errors = []
+        self.offsets = self.read_offsets()
+        for id_ in tqdm(self.offsets):
+
+            offset = self.offsets[id_]['offset']
+            # print(f'{id_=} {offset=}')
+            try:
+                obj = self.parse_bytes(offset=offset)
+            except Exception as e:
+                print(f'Error decoding {id_=} {offset=}')
+                errors.append(id_)
+                continue
+
+            if obj.work_id != id_:
+                errors.append(id_)
+                print(f'Error in index for {id_}')
+
+        print(f'{len(errors)} errors found in the {self.kind!r} index')
+
+        if fix and len(errors) > 0:
+            index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
+            offsets_df = pd.read_csv(self.offset_path, index_col=index_col)
+            offsets_df[~offsets_df.index.isin(errors)].to_csv(self.index_path / 'fixed_offsets.txt')
+            print(f'Fixed offsets written to file. ')
+        return errors
+
+
+class ConceptIndexer(BaseIndexer):
+    """
+    Indexing concept -> work id maps
+    """
+    def __init__(self, paths: Paths, indices):
+        super().__init__(paths=paths, indices=indices, kind='concepts')
+        return
+
+    def convert_to_bytes(self, concept: objects.Concept) -> bytes:
+        """
+        #concept_id, concept_name, concept_level, num_works, w1, w2, ...
+        """
+        bites = [
+            self.encoder.encode_id(id_=concept.concept_id),
+            self.encoder.encode_string(string=concept.name),
+            self.encoder.encode_int(i=concept.level),
+            self.encoder.encode_long_long_int(lli=concept.works_count)
+        ]
+
+        for w, score in tqdm(concept.tagged_works):
+            bites.extend([
+                self.encoder.encode_long_long_int(lli=w),
+                self.encoder.encode_float(f=score)
+            ])
+
+        return b''.join(bites)
+
+    def process_entry(self, concept_id: int):
+        if concept_id in self.offsets:
+            return
+
+        concept = objects.Concept(concept_id=concept_id)
+        concept.populate_tagged_works(indices=self.indices, paths=self.paths)
+        bites = self.convert_to_bytes(concept=concept)
+        self.write_index(bites=bites, id_=concept_id)
+        return
+
+    def parse_bytes(self, offset: int, reader=None) -> objects.Concept:
+        if reader is None:
+            reader = open(self.data_path, 'rb')
+
+        reader.seek(offset)
+
+        concept_id = self.decoder.decode_id(reader=reader)
+        concept_name = self.decoder.decode_string(reader=reader)
+        level = self.decoder.decode_int(reader=reader)
+        works_count = self.decoder.decode_long_long_int(reader)
+
+        tagged_works = []
+        for _ in range(works_count):
+            work_id = self.decoder.decode_long_long_int(reader)
+            score = self.decoder.decode_float(reader)
+            tagged_works.append((work_id, score))
+        return objects.Concept(concept_id=concept_id, name=concept_name, level=level,
+                               tagged_works=tagged_works, works_count=len(tagged_works))
 
 
 class RefIndexer(BaseIndexer):
