@@ -63,6 +63,8 @@ class Author:
         response = session.get(url, headers=session.headers, params=params)
         assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
         data = response.json()
+        session.close()
+
         works_count = data['meta']['count']
         num_pages = works_count // data['meta']['per_page'] + 1
         print(f'{self.author_id=} {self.name=} {works_count=:,} {num_pages=:,}')
@@ -77,7 +79,7 @@ class Author:
                 work_ids.extend(
                     [int(res['id'].replace('https://openalex.org/W', '')) for res in data['results']]
                 )
-
+        session.close()
         return work_ids
 
 
@@ -104,6 +106,7 @@ class Concept:
             data = response.json()
             self.name = data['display_name']
             self.level = data['level']
+            session.close()
         return
 
     def populate_tagged_works(self, indices: Indices, paths: Paths):
