@@ -262,8 +262,14 @@ class WorkIndexer(BaseIndexer):
         return
 
     def process_entry(self, work_id: int, write: bool = True):
-        if write and work_id in self.offsets:  # already computed
-            return
+        if work_id in self.offsets:  # already computed
+            print(f'{work_id=} already indexed ')
+            offset, len_ = self.offsets[work_id]['offset'], self.offsets[work_id]['len']
+
+            with open(self.data_path, 'rb') as reader:
+                reader.seek(offset)
+                bites = reader.read(len_)
+            return bites
 
         work = objects.Work(work_id=work_id, paths=self.paths)
         work.populate_info(indices=self.indices)
@@ -284,12 +290,12 @@ class WorkIndexer(BaseIndexer):
         ]
 
         cleaned_title = clean_string(work.title)
-
+        year = work.publication_year if work.publication_year is not None else 0
         bites.extend([
             self.encoder.encode_string(string=work.doi),  # DOI
             self.encoder.encode_string(string=cleaned_title),  # title
 
-            self.encoder.encode_int(i=work.publication_year),
+            self.encoder.encode_int(i=year),
             self.encoder.encode_string(string=work.publication_date),
 
             self.encoder.encode_venue(venue=work.venue),  # venue
