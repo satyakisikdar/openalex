@@ -11,10 +11,10 @@ import abc
 import os
 
 import pandas as pd
+from tqdm.auto import tqdm
 
 import src.objects as objects
 from src.utils import Paths, IDMap, reconstruct_abstract, clean_string
-from tqdm.auto import tqdm
 
 
 class BaseIndexer:
@@ -60,6 +60,7 @@ class BaseIndexer:
             previous_offset = 0
             previous_len = 0
         else:
+            # possible bug here..
             last_key = list(self.offsets.keys())[-1]
             previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
 
@@ -100,7 +101,8 @@ class BaseIndexer:
                 errors.append(id_)
                 continue
 
-            if obj.work_id != id_:
+            work_id = obj[0] if self.kind == 'references' else obj.work_id
+            if work_id != id_:
                 errors.append(id_)
                 print(f'Error in index for {id_}')
 
@@ -294,6 +296,7 @@ class WorkIndexer(BaseIndexer):
         ])
 
         abstract = clean_string(reconstruct_abstract(work.abstract_inverted_index))  # abstract
+        # print(f'{abstract=!r}')
         bites.append(self.encoder.encode_string(abstract))
 
         # add author info
