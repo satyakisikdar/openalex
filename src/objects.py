@@ -192,11 +192,14 @@ class Work:
         Try to load the object from the indices
         If compute is True, compute and update the index
         """
+        # TODO: broken as of 5pm Apr 26
+        raise Exception('Broken!')
+
         if work_indexer is not None:
             # work_indexer.read_offsets()
             work_offset = work_indexer.offsets.get(self.work_id, {}).get('offset')
             if work_offset is None and compute:
-                work_indexer.process_entry(work_id=self.work_id)
+                work_indexer.process_entry(work_id=self.work_id, write=True)
                 work_offset = work_indexer.offsets[self.work_id]['offset']
                 # print(f'{self.work_id=} {work_offset=}')
             if work_offset is not None:
@@ -213,7 +216,7 @@ class Work:
             ref_offset = ref_indexer.offsets.get(self.work_id, {}).get('offset')
 
             if ref_offset is None and compute:
-                ref_indexer.process_entry(work_id=self.work_id)
+                ref_indexer.process_entry(work_id=self.work_id, write=True)
                 ref_offset = ref_indexer.offsets[self.work_id]['offset']
                 # print(f'{self.work_id=} {ref_offset=}')
             if ref_offset is not None:
