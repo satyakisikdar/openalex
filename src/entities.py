@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict
 
 import pandas as pd
-import ujson as json
+import orjson as json
 from box import Box
 from joblib import Parallel, delayed
 from tqdm.auto import tqdm
@@ -317,6 +317,7 @@ class Entities:
 
             rows_dict = {col: [] for col in missing_table_names}
             tqdm.write(f'\nProcessing {missing_table_names} {gz_filename}')
+
             with gzip.open(gz_filename) as fp:
                 for line in fp:
                     json_line = json.loads(line)
@@ -348,8 +349,8 @@ class Entities:
             except Exception as e:
                 parq_df = []  # this triggers the next if statement
 
-            if len(parq_df) != entry.count:  # recompute if the counts don't match up
-                # tqdm.write(f'Incorrect count: {len(parq_df)=:,} != {entry.count=:,}')
+            if entry.count - len(parq_df) <=5:  # recompute if the counts don't match up
+                tqdm.write(f'{entry} Incorrect count: {len(parq_df)=:,} != {entry.count=:,}')
                 invalid_files.append(parq_path)
                 if delete:
                     if parq_path.exists():
