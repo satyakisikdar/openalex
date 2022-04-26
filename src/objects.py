@@ -10,7 +10,6 @@ from typing import Optional, List
 
 import pandas as pd
 import requests
-from rich.progress import Progress
 
 # import src.index as indexer
 from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no
@@ -365,30 +364,11 @@ class Work:
         self.references = set(refs_rows.referenced_work_id)
         return
 
-    def populate_cocitations(self, indices: Indices):
+    def populate_cocitations(self, indices: Indices, work_indexer, ref_indexer):
         """
         Return the co-cited works -- D = set of papers citing the paper,
         cocited papers = set of papers cited by papers in D
 
         currently too slow -- optimize references call -- build a graph?
         """
-        cocited_papers = set()
-
-        if self.citing_works is None:
-            self.populate_citations(indices=indices)
-
-        if self.citations == 0:  # work has no citations, don't bother
-            return  # cocited_papers
-
-        with Progress(auto_refresh=False) as progress:
-            task = progress.add_task(f'Cocitations', total=self.citations, start=False)
-
-            for citing_work_id in self.citing_works:
-                w = Work(work_id=citing_work_id, paths=self.paths)
-                w.populate_references(indices=indices)
-                cocited_papers.update(w.references)
-                progress.update(task, advance=1)
-                progress.refresh()
-
-        self.cocited_works = cocited_papers
         return  # cocited_papers
