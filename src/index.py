@@ -9,6 +9,7 @@ Concept Works: concept_id,  num_works [work1, score1, work2, score2, ... ]
 """
 import abc
 import os
+import struct
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -33,6 +34,8 @@ class BaseIndexer:
 
         self.offset_path = self.index_path / 'offsets.txt'
         self.data_path = self.index_path / 'data.txt'
+        self.dump_path = self.index_path / 'dumps.txt'  # store the dumps of byte representations
+
         self.offsets = self.read_offsets()
 
         self.encoder = encoder.EncoderDecoder()
@@ -50,7 +53,34 @@ class BaseIndexer:
             with open(self.offset_path, 'w') as fp:
                 fp.write('work_id,offset,len\n')
 
-        return pd.read_csv(self.offset_path, index_col=0, engine='c').to_dict('index')
+        return (
+            pd.read_csv(self.offset_path, index_col=0, engine='c')
+            .drop_duplicates()
+            .to_dict('index')
+        )
+
+    def update_index_from_dump(self):
+        """
+        Read the dumps.txt file and update the index
+        """
+        updates = 0
+        with open(self.dump_path, 'rb') as reader:
+            while True:
+                bite = reader.read(1)
+                if not bite:
+                    break
+
+                work_id = self.decoder.decode_long_long_int(reader)  # the # sign is already read
+                # print(f'Reading {work_id=} from dumps')
+                len_ = self.decoder.decode_long_int(reader)
+                work_bytes = reader.read(len_)  # read the bytes
+
+                if work_id not in self.offsets:
+                    # print(f'Writing new {work_id=} to offsets')
+                    self.write_index(bites=work_bytes, id_=work_id)
+                    updates += 1
+        print(f'{updates:,} new entries added from dump')
+        return
 
     def write_index(self, bites: bytes, id_: int):
         """
@@ -74,6 +104,9 @@ class BaseIndexer:
             data_writer.write(bites)  # write the bytes
         return
 
+    def __contains__(self, item):
+        return item in self.offsets
+
     def __getitem__(self, item):
         """
         Use square brackets to get object using work id / concept id
@@ -81,21 +114,25 @@ class BaseIndexer:
         if item in self.offsets:
             entry = self.parse_bytes(offset=self.offsets[item]['offset'])
 
-            if self.kind == 'works':  # get the references
-                work_id, refs, cites = self.ref_indexer[item]  # get the entry from references index
-                assert work_id == item, f'ID mismatch: {item} != {work_id}'
-
-                entry.references = refs
-                entry.citations = len(cites)
-                entry.citing_works = cites
+            ## commented for now
+            # if self.kind == 'works':  # get the references
+            #     work_id, refs, cites = self.ref_indexer[item]  # get the entry from references index
+            #     assert work_id == item, f'ID mismatch: {item} != {work_id}'
+            #
+            #     entry.references = refs
+            #     entry.citations = len(cites)
+            #     entry.citing_works = cites
         else:
             # process the entry and write the offset
-            print(f'Computing {self.kind!r} index for {item}')
-            entry = self.process_entry(item)
+            # print(f'Computing {self.kind!r} index for {item}')
+            entry = self.process_entry(item, write=False)  # dont write to the index just yet
 
-            if self.kind == 'works':
-                ## also process the references  # TODO: test
-                self.ref_indexer.process_entry(item)  # process the references
+            # if self.kind == 'works':
+            #     ## also process the references  # TODO: test
+            #     work_id, refs, cites = self.ref_indexer.process_entry(item, write=True)  # process the references
+            #     entry.references = refs
+            #     entry.citations = len(cites)
+            #     entry.citing_works = cites
         return entry
 
     @abc.abstractmethod
@@ -103,20 +140,24 @@ class BaseIndexer:
         pass
 
     @abc.abstractmethod
-    def process_entry(self, id_: int):
+    def process_entry(self, id_: int, write: bool):
         pass
 
     @abc.abstractmethod
     def parse_bytes(self, offset: int, reader=None):
         pass
 
-    def validate_and_fix_index(self, fix: bool = True):
+    def validate_and_fix_index(self, fix: bool = True, start=0):
         """
         Validate the index by matching the work id / concept id from the extracted object with that of the offset file
         """
         errors = []
         self.offsets = self.read_offsets()
-        for id_ in tqdm(self.offsets):
+        ids = list(self.offsets.keys())[start: ]
+        if start != 0:
+            print(f'Starting at {start=:,}')
+
+        for id_ in tqdm(ids):
 
             offset = self.offsets[id_]['offset']
             # print(f'{id_=} {offset=}')
@@ -169,14 +210,15 @@ class ConceptIndexer(BaseIndexer):
 
         return b''.join(bites)
 
-    def process_entry(self, concept_id: int):
+    def process_entry(self, concept_id: int, write: bool):
         if concept_id in self.offsets:
             return
 
         concept = objects.Concept(concept_id=concept_id)
         concept.populate_tagged_works(indices=self.indices, paths=self.paths)
         bites = self.convert_to_bytes(concept=concept)
-        self.write_index(bites=bites, id_=concept_id)
+        if write:
+            self.write_index(bites=bites, id_=concept_id)
         return
 
     def parse_bytes(self, offset: int, reader=None) -> objects.Concept:
@@ -234,7 +276,7 @@ class RefIndexer(BaseIndexer):
         )
         return b''.join(bites)
 
-    def process_entry(self, work_id):
+    def process_entry(self, work_id, write):
         """
         Offset of current object = offset of previous object + length of previous object
 
@@ -251,7 +293,8 @@ class RefIndexer(BaseIndexer):
         work.populate_citations(self.indices)
 
         bites = self.convert_to_bytes(work=work)
-        self.write_index(bites=bites, id_=work_id)
+        if write:
+            self.write_index(bites=bites, id_=work_id)
         return
 
     def parse_bytes(self, offset: int, reader=None) -> (int, set, set):
@@ -337,6 +380,20 @@ class WorkIndexer(BaseIndexer):
             self.encoder.encode_concept(concept=concept) for concept in work.concepts
         ])
         return b''.join(bites)
+
+    def dump_bytes(self, work_id: int, bites: bytes):
+        """
+        Write the work_id, len(work_id), and bytes in dumps.txt
+        """
+        content = [
+            self.encoder.encode_id(id_=work_id),
+            self.encoder.encode_long_int(li=len(bites)),  # length of bytes
+            bites,
+        ]
+        content = b''.join(content)
+        with open(self.dump_path, 'ab') as writer:
+            writer.write(content)
+        return
 
     def parse_bytes(self, offset: int, reader=None) -> objects.Work:
         if reader is None:
