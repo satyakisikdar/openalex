@@ -83,10 +83,8 @@ class EncoderDecoder:
         return struct.unpack('L', reader.read(8))[0]
 
     def encode_int(self, i) -> bytes:
-        if i is None:
-            i = 0
         if not isinstance(i, int):
-            print(f'{i=} {type(i)=}')
+            i = 0
         return struct.pack('I', i)
 
     def decode_int(self, reader) -> int:
