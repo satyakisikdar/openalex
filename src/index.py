@@ -37,6 +37,8 @@ class BaseIndexer:
 
         self.encoder = encoder.EncoderDecoder()
         self.decoder = encoder.EncoderDecoder()  # just me being lazy
+
+        self.ref_indexer = None  # None except in Work Indexer class
         return
 
     def read_offsets(self) -> pd.DataFrame:
@@ -71,6 +73,30 @@ class BaseIndexer:
             offset_writer.write(f'{id_},{offset},{len(bites)}\n')  # write the offset
             data_writer.write(bites)  # write the bytes
         return
+
+    def __getitem__(self, item):
+        """
+        Use square brackets to get object using work id / concept id
+        """
+        if item in self.offsets:
+            entry = self.parse_bytes(offset=self.offsets[item]['offset'])
+
+            if self.kind == 'works':  # get the references
+                work_id, refs, cites = self.ref_indexer[item]  # get the entry from references index
+                assert work_id == item, f'ID mismatch: {item} != {work_id}'
+
+                entry.references = refs
+                entry.citations = len(cites)
+                entry.citing_works = cites
+        else:
+            # process the entry and write the offset
+            print(f'Computing {self.kind!r} index for {item}')
+            entry = self.process_entry(item)
+
+            if self.kind == 'works':
+                ## also process the references  # TODO: test
+                self.ref_indexer.process_entry(item)  # process the references
+        return entry
 
     @abc.abstractmethod
     def convert_to_bytes(self, entity) -> bytes:
@@ -253,24 +279,16 @@ class RefIndexer(BaseIndexer):
 class WorkIndexer(BaseIndexer):
     """
     Write work information into a binary file
-    #,work_id, type, DOI, title, venue_id, date, year, abstracts
+    #,work_id, type, DOI, title, venue_id, date, year, abstract
     """
 
     def __init__(self, paths: Paths, indices, id_map: IDMap):
         super().__init__(paths, indices, kind='works')
         self.id_map = id_map
+        self.ref_indexer = RefIndexer(paths=self.paths, indices=self.indices)
         return
 
     def process_entry(self, work_id: int, write: bool = True):
-        if work_id in self.offsets:  # already computed
-            print(f'{work_id=} already indexed ')
-            offset, len_ = self.offsets[work_id]['offset'], self.offsets[work_id]['len']
-
-            with open(self.data_path, 'rb') as reader:
-                reader.seek(offset)
-                bites = reader.read(len_)
-            return bites
-
         work = objects.Work(work_id=work_id, paths=self.paths)
         work.populate_info(indices=self.indices)
         work.populate_venue(indices=self.indices, id_map=self.id_map)
@@ -280,7 +298,7 @@ class WorkIndexer(BaseIndexer):
 
         if write:
             self.write_index(id_=work_id, bites=bites)
-        return bites
+        return work
 
     def convert_to_bytes(self, work) -> bytes:
         bites = [
