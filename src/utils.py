@@ -144,7 +144,7 @@ def get_author_id(name) -> int:
     return int(id_.replace('A', ''))
 
 
-class Indices:
+class ParquetIndices:
     """
     container for indices, lazily load stuff
     implement __get__ method
