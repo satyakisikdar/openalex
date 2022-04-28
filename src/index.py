@@ -9,7 +9,6 @@ Concept Works: concept_id,  num_works [work1, score1, work2, score2, ... ]
 """
 import abc
 import os
-import struct
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -63,6 +62,9 @@ class BaseIndexer:
         """
         Read the dumps.txt file and update the index
         """
+        if not self.dump_path.exists():
+            return
+
         updates = 0
         with open(self.dump_path, 'rb') as reader:
             while True:
@@ -80,6 +82,10 @@ class BaseIndexer:
                     self.write_index(bites=work_bytes, id_=work_id)
                     updates += 1
         print(f'{updates:,} new entries added from dump')
+
+        # clear out the dumps file
+        writer = open(self.dump_path, 'wb')
+        writer.close()
         return
 
     def write_index(self, bites: bytes, id_: int):
@@ -151,9 +157,13 @@ class BaseIndexer:
         """
         Validate the index by matching the work id / concept id from the extracted object with that of the offset file
         """
+
+        # TODO: fix bug when the last entry is corrupted. The data file needs to be updated
+        # TODO: otherwise the indices will not work
+
         errors = []
         self.offsets = self.read_offsets()
-        ids = list(self.offsets.keys())[start: ]
+        ids = list(self.offsets.keys())[start:]
         if start != 0:
             print(f'Starting at {start=:,}')
 
@@ -179,7 +189,8 @@ class BaseIndexer:
             index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
             offsets_df = pd.read_csv(self.offset_path, index_col=index_col)
             offsets_df[~offsets_df.index.isin(errors)].to_csv(self.index_path / 'fixed_offsets.txt')
-            print(f'Fixed offsets written to file. ')
+            print(f'Fixed offsets written to file. Offsets updated for the object')
+            self.offsets = self.read_offsets()
         return errors
 
 
@@ -285,9 +296,6 @@ class RefIndexer(BaseIndexer):
         Write bytes to a file
         Compute offsets and write offset
         """
-        if work_id in self.offsets:  # already computed
-            return
-
         work = objects.Work(work_id=work_id, paths=self.paths)
         work.populate_references(self.indices)
         work.populate_citations(self.indices)
@@ -295,7 +303,21 @@ class RefIndexer(BaseIndexer):
         bites = self.convert_to_bytes(work=work)
         if write:
             self.write_index(bites=bites, id_=work_id)
-        return
+        return work
+
+    def dump_bytes(self, work_id: int, bites: bytes):
+        """
+        Write the work_id, len(work_id), and bytes in dumps.txt
+        """
+        content = [
+            self.encoder.encode_id(id_=work_id),
+            self.encoder.encode_long_int(li=len(bites)),  # length of bytes
+            bites,
+        ]
+        content = b''.join(content)
+        with open(self.dump_path, 'ab') as writer:
+            writer.write(content)
+        return content
 
     def parse_bytes(self, offset: int, reader=None) -> (int, set, set):
         if reader is None:
