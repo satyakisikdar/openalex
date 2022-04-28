@@ -81,7 +81,9 @@ class BaseIndexer:
                     # print(f'Writing new {work_id=} to offsets')
                     self.write_index(bites=work_bytes, id_=work_id)
                     updates += 1
-        print(f'{updates:,} new entries added from dump')
+
+        if updates > 0:
+            print(f'{updates:,} new entries added from dump')
 
         # clear out the dumps file
         writer = open(self.dump_path, 'wb')

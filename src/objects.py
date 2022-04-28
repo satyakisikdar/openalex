@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 from tqdm.auto import tqdm
 
-from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no, convert_openalex_id_to_int
+from src.utils import ParquetIndices, get_rows, Paths, IDMap, get_partition_no, convert_openalex_id_to_int
 
 
 @dataclass
@@ -38,7 +38,7 @@ class Author:
         self.url = f'https://openalex.org/A{self.author_id}'
         return
 
-    def populate_info(self, indices: Indices, paths: Paths):
+    def populate_info(self, indices: ParquetIndices, paths: Paths):
         """
         Populates info like Name
         """
@@ -122,7 +122,7 @@ class Concept:
 
     def __post_init__(self):
         self.url = f'https://openalex.org/C{self.concept_id}'
-        if self.name is None or self.works_count is None or self.related_concepts is None:
+        if self.name is None:  # or self.works_count is None or self.related_concepts is None:
             # print('Making API call')
             session = requests.Session()
 
@@ -138,7 +138,7 @@ class Concept:
             session.close()
         return
 
-    def populate_tagged_works(self, indices: Indices, paths: Paths):
+    def populate_tagged_works(self, indices: ParquetIndices, paths: Paths):
         """
         Return the set of work ids tagged with the concept
         """
@@ -217,7 +217,7 @@ class Work:
         ## TODO: replace populate_info with an API call?
         return
 
-    def get_partition_info(self, kind: str, indices: Indices):
+    def get_partition_info(self, kind: str, indices: ParquetIndices):
 
         if kind not in self.partitions_dict:
             part_no = get_partition_no(id_=self.work_id, kind=kind, ix_df=indices[kind])
@@ -271,7 +271,7 @@ class Work:
 
         return
 
-    def populate_info(self, indices: Indices):
+    def populate_info(self, indices: ParquetIndices):
         """
         Populate basic info
         """
@@ -287,7 +287,7 @@ class Work:
             setattr(self, key, val[self.work_id])
         return
 
-    def populate_venue(self, indices: Indices, id_map: IDMap):
+    def populate_venue(self, indices: ParquetIndices, id_map: IDMap):
         """
         Populate host venue
         """
@@ -311,7 +311,7 @@ class Work:
         """
         pass
 
-    def populate_authors(self, indices: Indices):
+    def populate_authors(self, indices: ParquetIndices):
         """
         Add list of authors
         """
@@ -353,7 +353,7 @@ class Work:
         self.authors = list(authors_dict.values())
         return
 
-    def populate_concepts(self, indices: Indices, id_map: IDMap):
+    def populate_concepts(self, indices: ParquetIndices, id_map: IDMap):
         """
         Add list of concepts
         """
@@ -378,7 +378,7 @@ class Work:
         self.concepts = concepts
         return
 
-    def populate_citations(self, indices: Indices):
+    def populate_citations(self, indices: ParquetIndices):
         """
         Add reference works
         """
@@ -397,7 +397,7 @@ class Work:
         self.citations = len(self.citing_works)
         return
 
-    def populate_references(self, indices: Indices):
+    def populate_references(self, indices: ParquetIndices):
         """
         add references
         """
@@ -411,7 +411,7 @@ class Work:
         self.references = set(refs_rows.referenced_work_id)
         return
 
-    def populate_cocitations(self, indices: Indices, work_indexer, ref_indexer):
+    def populate_cocitations(self, indices: ParquetIndices, work_indexer, ref_indexer):
         """
         Return the co-cited works -- D = set of papers citing the paper,
         cocited papers = set of papers cited by papers in D

@@ -1,21 +1,17 @@
-import pandas as pd
-from pathlib import Path
 import sys
-import gc
-from tqdm.auto import tqdm
-import re
-from string import punctuation
+
 from rich import print
+from tqdm.auto import tqdm
 
 tqdm.pandas()
 
 sys.path.extend(['./', '../', '../../', '../../../'])
-from src.utils import Paths, Indices, IDMap
-from src.objects import Work, Author, Venue
+from src.utils import Paths, ParquetIndices, IDMap
+from src.objects import Work
 
 if __name__ == '__main__':
     paths = Paths()
-    indices = Indices(paths=paths)
+    indices = ParquetIndices(paths=paths)
     id_map = IDMap(paths=paths)
     vrg = 3003512226  # VRG paper
     avrg = 3207443205
