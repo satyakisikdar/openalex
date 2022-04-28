@@ -1,6 +1,7 @@
 import ast
 import gzip
 import multiprocessing
+import re
 import time
 import unicodedata
 from datetime import datetime
@@ -72,6 +73,59 @@ class IDMap:
         )
 
         return
+
+
+def convert_openalex_id_to_int(openalex_id):
+    if not openalex_id:
+        return None
+    openalex_id = openalex_id.strip().upper()
+    p = re.compile("([WAICV]\d{2,})")
+    matches = re.findall(p, openalex_id)
+    if len(matches) == 0:
+        return None
+    clean_openalex_id = matches[0]
+    clean_openalex_id = clean_openalex_id.replace('\0', '')[1:]  # delete the first letter
+    return int(clean_openalex_id)
+
+
+def combined_dump_work_refs(work_id, work_indexer, ref_indexer):
+    """
+    Dump bytes of work and its references to the respective dump files
+    """
+    process_and_dump_work(work_id=work_id, work_indexer=work_indexer)
+    process_and_dump_references(work_id=work_id, ref_indexer=ref_indexer)
+    return
+
+
+def process_and_dump_work(work_id, work_indexer):
+    """
+    Process a new work id and dump the bytes
+    """
+    if work_id in work_indexer:
+        return
+    try:
+        work = work_indexer[work_id]
+        bites = work_indexer.convert_to_bytes(work)
+        work_indexer.dump_bytes(work_id=work_id, bites=bites)
+    except Exception as e:
+        print(f'Exception {e=} for {work_id=}')
+    return
+
+
+def process_and_dump_references(work_id, ref_indexer):
+    """
+    Process a new work id  and dump the bytes
+    """
+    if work_id in ref_indexer:
+        return
+    try:
+        work = ref_indexer[work_id]
+        bites = ref_indexer.convert_to_bytes(work)
+        # print(work_id, len(work.references), work.citations)
+        ref_indexer.dump_bytes(work_id=work_id, bites=bites)
+    except Exception as e:
+        print(f'Exception {e=} for {work_id=}')
+    return
 
 
 def get_author_id(name) -> int:
