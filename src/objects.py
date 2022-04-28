@@ -10,9 +10,9 @@ from typing import Optional, List
 
 import pandas as pd
 import requests
+from tqdm.auto import tqdm
 
-# import src.index as indexer
-from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no
+from src.utils import Indices, get_rows, Paths, IDMap, get_partition_no, convert_openalex_id_to_int
 
 
 @dataclass
@@ -92,10 +92,38 @@ class Concept:
     url: Optional[str] = field(default=None, repr=False)
     tagged_works: Optional[list] = field(default_factory=lambda: [], repr=False)
     works_count: Optional[int] = None
+    related_concepts: Optional[list] = field(default_factory=lambda: [], repr=False)
+    ancestors: Optional[list] = field(default_factory=lambda: [], repr=False)
+
+    def populate_related_and_ancestor_concepts(self):
+        session = requests.Session()
+        url = f'https://api.openalex.org/C{self.concept_id}'
+        params = {'mailto': 'ssikdar@iu.edu'}
+        session.headers.update(params)
+        response = session.get(url, headers=session.headers, params=params)
+        assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
+        data = response.json()
+        session.close()
+
+        print(f'{len(data["related_concepts"])} related concepts')
+        for related_concept_data in tqdm(data['related_concepts']):
+            id_ = convert_openalex_id_to_int(related_concept_data['id'])
+            c = Concept(concept_id=id_, score=related_concept_data['score'], level=related_concept_data['level'],
+                        name=related_concept_data['display_name'])
+            self.related_concepts.append(c)
+
+        print(f'{len(data["ancestors"])} ancestors')
+        for anc_concept_data in tqdm(data['ancestors']):
+            id_ = convert_openalex_id_to_int(anc_concept_data['id'])
+            c = Concept(concept_id=id_, level=anc_concept_data['level'],
+                        name=anc_concept_data['display_name'])
+            self.ancestors.append(c)
+        return
 
     def __post_init__(self):
         self.url = f'https://openalex.org/C{self.concept_id}'
-        if self.name is None:  # make an API call to fill out the details
+        if self.name is None or self.works_count is None or self.related_concepts is None:
+            # print('Making API call')
             session = requests.Session()
 
             url = f'https://api.openalex.org/C{self.concept_id}'
@@ -106,6 +134,7 @@ class Concept:
             data = response.json()
             self.name = data['display_name']
             self.level = data['level']
+            self.works_count = data['works_count']
             session.close()
         return
 
@@ -133,6 +162,18 @@ class Concept:
 
         self.works_count = len(self.tagged_works)  # update works count
         return
+
+    def get_tagged_works(self, concept_indexer) -> set:
+        """
+        use the concept indexer to get the set of works tagged with the concept
+        If not indexed, add it to the concept index
+        """
+        work_ids = set()
+        if self.concept_id in concept_indexer:
+            pass
+        raise NotImplementedError()
+
+        return work_ids
 
 
 @dataclass
