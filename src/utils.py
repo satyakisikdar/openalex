@@ -162,6 +162,20 @@ class Indices:
         self.works_host_venues = None
         return
 
+    def initialize(self):
+        """
+        Initialize the indices
+        :return:
+        """
+        self['works']
+        self['works_authorships']
+        self['works_concepts']
+        self['authors']
+        self['works_host_venues']
+        self['works_referenced_works']
+        self['works_citing_works']
+        return
+
     def load_index(self, kind: str):
         """
         Populate the corresponding index
@@ -214,7 +228,7 @@ class Indices:
             # print(f'Loading index for {item!r} from {str(self.paths.ix_path/item)}')
             self.load_index(kind=item)
             toc = time.time()
-            print(f'{item!r} Index loaded in {toc - tic:.2g} seconds')
+            print(f'{item!r} index loaded in {toc - tic:.2g} seconds')
         index = getattr(self, item)  # try again
         assert index is not None, 'Setting index did not work'
         return index
