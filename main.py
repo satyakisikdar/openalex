@@ -1,28 +1,12 @@
 import sys
 
-from src.objects import Work
-
 sys.path.extend(['../', './'])
 from tqdm.auto import tqdm
 
 from src.entities import Works
-from src.utils import Paths, Indices, IDMap
+from src.utils import Paths, Indices, IDMap, combined_dump_work_refs
 from src.index import WorkIndexer, ConceptIndexer, RefIndexer
 from joblib import Parallel, delayed, parallel_backend
-
-
-## parallelize
-def parallel_write(work_id, work_indexer):
-    if work_id in work_indexer:
-        return
-
-    try:
-        work = work_indexer[work_id]
-        bites = work_indexer.convert_to_bytes(work)
-        work_indexer.dump_bytes(work_id=work_id, bites=bites)
-    except Exception as e:
-        print(f'Exception {e=} for {work_id=}')
-    return
 
 
 def parse(num_workers):
@@ -43,7 +27,7 @@ def index_refs(num_workers):
     id_map = IDMap(paths=paths)
     concept_indexer = ConceptIndexer(paths=paths, indices=indices)
     work_indexer = WorkIndexer(paths=paths, indices=indices, id_map=id_map)
-    # ref_indexer = RefIndexer(paths=paths, indices=indices)
+    ref_indexer = RefIndexer(paths=paths, indices=indices)
 
     complex_network = 34947359
     concept = concept_indexer.parse_bytes(offset=concept_indexer.offsets[complex_network]['offset'])
@@ -53,12 +37,14 @@ def index_refs(num_workers):
     print(f'{len(work_ids)=:,}')
 
     work_indexer.update_index_from_dump()  # update the data and offset files
+    ref_indexer.update_index_from_dump()  # update the data and offset files
+
     with parallel_backend('threading', n_jobs=num_workers):
         Parallel()(
-            delayed(parallel_write)(work_id, work_indexer) for work_id in tqdm(work_ids)
+            delayed(combined_dump_work_refs)(work_id, work_indexer, ref_indexer) for work_id in tqdm(work_ids)
         )
     work_indexer.update_index_from_dump()  # update the data and offset files
-
+    ref_indexer.update_index_from_dump()  # update the data and offset files
     return
 
 
@@ -75,7 +61,7 @@ def index_refs(num_workers):
 
 def main():
     # parse(num_workers=6)
-    index_refs(num_workers=6)
+    index_refs(num_workers=15)
     return
 
 
