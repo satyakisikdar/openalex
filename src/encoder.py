@@ -59,6 +59,7 @@ class EncoderDecoder:
         """
         if string is None:
             string = ''
+        string = clean_string(string)
         return b''.join([
             struct.pack('L', len(string)),  # number of bytes for title
             bytes(string, encoding=encoding)  # the actual title
