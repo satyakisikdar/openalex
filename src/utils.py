@@ -60,6 +60,19 @@ class IDMap:
                 .set_index('idx')
         )
 
+        insts_df = (
+            pd.read_parquet(paths.processed_dir / 'institutions')
+                .assign(idx=lambda df_: pd.to_numeric(
+                df_.id.str.replace('https://openalex.org/I', '', regex=False)))
+                .set_index('idx')
+        )
+
+        self.inst_id2name = (
+            insts_df
+                .display_name
+                .to_dict()
+        )
+
         self.concept_id2name = (
             concepts_df
                 .display_name
@@ -78,7 +91,7 @@ class IDMap:
 def convert_openalex_id_to_int(openalex_id):
     if not openalex_id:
         return None
-    openalex_id = openalex_id.strip().upper()
+    openalex_id = openalex_id.strip().upper().replace('https://openalex.org/', '')
     p = re.compile("([WAICV]\d{2,})")
     matches = re.findall(p, openalex_id)
     if len(matches) == 0:
@@ -93,7 +106,7 @@ def combined_dump_work_refs(work_id, work_indexer, ref_indexer):
     Dump bytes of work and its references to the respective dump files
     """
     process_and_dump_work(work_id=work_id, work_indexer=work_indexer)
-    process_and_dump_references(work_id=work_id, ref_indexer=ref_indexer)
+    # process_and_dump_references(work_id=work_id, ref_indexer=ref_indexer)
     return
 
 
@@ -433,9 +446,9 @@ def reconstruct_abstract(inv_abstract_st):
     if inv_abstract_st is None:
         return ''
 
-    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
     if isinstance(inv_abstract_st, bytes):
         inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
+    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
 
     inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
     abstract_dict = {}
