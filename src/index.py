@@ -14,7 +14,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 import src.objects as objects
-from src.utils import Paths, IDMap, reconstruct_abstract, clean_string
+from src.utils import Paths, IDMap, reconstruct_abstract, clean_string, reconstruct_abstract_new
 
 
 class BaseIndexer:
@@ -52,9 +52,15 @@ class BaseIndexer:
             with open(self.offset_path, 'w') as fp:
                 fp.write('work_id,offset,len\n')
 
+        ix_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
+        df = pd.read_csv(self.offset_path, engine='c')
+
+        if self.kind != 'concepts':
+            df = df.drop_duplicates(subset=['work_id']).set_index('work_id')
+        else:
+            df = df.set_index('concept_id')
         return (
-            pd.read_csv(self.offset_path, index_col=0, engine='c')
-            .drop_duplicates()
+            df
             .to_dict('index')
         )
 
@@ -386,7 +392,10 @@ class WorkIndexer(BaseIndexer):
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
 
-        abstract = clean_string(reconstruct_abstract(work.abstract_inverted_index))  # abstract
+        try:
+            abstract = reconstruct_abstract(work.abstract_inverted_index)
+        except Exception as e:
+            abstract = reconstruct_abstract_new(work.abstract_inverted_index)
         # print(f'{abstract=!r}')
         bites.append(self.encoder.encode_string(abstract))
 
