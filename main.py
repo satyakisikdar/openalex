@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 
 from src.entities import Works
 from src.utils import Paths, ParquetIndices, IDMap, combined_dump_work_refs, process_and_dump_references, \
-    convert_openalex_id_to_int, clean_string, reconstruct_abstract, read_manifest
+    convert_openalex_id_to_int, clean_string, reconstruct_abstract_new, read_manifest
 from src.index import WorkIndexer, ConceptIndexer, RefIndexer
 from joblib import Parallel, delayed, parallel_backend
 
@@ -51,7 +51,7 @@ def process_json(work_json, work_indexer, id_map):
     work.doi = work_row['doi']
     work.type = work_row['type']
     work.citations = work_row['cited_by_count']
-    work.abstract = clean_string(reconstruct_abstract(work_row['abstract_inverted_index']))
+    work.abstract = clean_string(reconstruct_abstract_new(work_row['abstract_inverted_index']))
 
     # host venues
     if host_venue := (work_json.get('host_venue') or {}):
@@ -116,7 +116,7 @@ def process_json(work_json, work_indexer, id_map):
     return work
 
 
-def process_jsonl_file(jsonl_file, work_indexer, id_map):
+def process_jsonl_file(jsonl_file, work_indexer, id_map, work_ids=None):
     ## create work objects directly
     with gzip.open(jsonl_file) as fp:
         lines = fp.readlines()
@@ -125,6 +125,11 @@ def process_jsonl_file(jsonl_file, work_indexer, id_map):
 
     for i, line in tqdm(enumerate(lines), total=len(lines)):
         data = json.loads(line)
+        work_id = convert_openalex_id_to_int(data['id'])
+
+        if work_ids is not None and work_id not in work_ids:
+            continue
+
         work = process_json(data, work_indexer=work_indexer, id_map=id_map)
         if work is None:
             continue
@@ -137,14 +142,23 @@ def process_jsonl_file(jsonl_file, work_indexer, id_map):
 
 def parse_works_v2():
     paths = Paths()
-    indices = ParquetIndices(paths=paths)
-    id_map = IDMap(paths=paths)
-    work_indexer = WorkIndexer(paths=paths, indices=indices, id_map=id_map)
     works_manifest = read_manifest(kind='works', paths=paths)
+    paths = Paths()
+    indices = ParquetIndices(paths=paths)
+    # indices.initialize()
 
-    for entry in tqdm(works_manifest.entries):
+    id_map = IDMap(paths=paths)
+    concept_indexer = ConceptIndexer(paths=paths, indices=indices)
+    work_indexer = WorkIndexer(paths=paths, indices=indices, id_map=id_map)
+    concept_id = 121332964  # physics
+    concept = concept_indexer.parse_bytes(offset=concept_indexer.offsets[concept_id]['offset'])
+    print(f'{concept=}')
+
+    work_ids = [w for w, _ in concept.tagged_works]  # if w not in ref_indexer or w not in work_indexer]
+    print(f'{len(work_ids)=:,} to index')
+    for entry in tqdm(sorted(works_manifest.entries, key=lambda x: x.count)):
         jsonl_file = entry.filename
-        process_jsonl_file(jsonl_file, work_indexer=work_indexer, id_map=id_map)
+        process_jsonl_file(jsonl_file, work_indexer=work_indexer, id_map=id_map, work_ids=work_ids)
     return
 
 
@@ -219,8 +233,10 @@ def index_references_and_citations(num_workers, work_id, work_indexer, ref_index
 
 def main():
     # parse(num_workers=6)
-    # index_concept_tagged_works(num_workers=25, concept_id=34947359)
-    parse_works_v2()
+    concept = 34947359  # complex network
+    # concept = 121332964  # physics
+    index_concept_tagged_works(num_workers=20, concept_id=concept)
+    # parse_works_v2()
     return
 
 
