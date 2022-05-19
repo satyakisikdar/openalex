@@ -185,8 +185,8 @@ class ParquetIndices:
         self['works_concepts']
         self['authors']
         self['works_host_venues']
-        # self['works_referenced_works']
-        # self['works_citing_works']
+        self['works_referenced_works']
+        self['works_citing_works']
         return
 
     def load_index(self, kind: str):
@@ -442,37 +442,16 @@ def construct_abstracts(inv_abstracts):
     return abstracts
 
 
-def reconstruct_abstract_new(inv_abstract_st):
-    if inv_abstract_st is None:
-        return ''
-
-    if isinstance(inv_abstract_st, bytes):
-        inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
-    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
-
-    inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
-    abstract_dict = {}
-    # print(f'{type(inv_abstract)=}')
-    for word, locs in inv_abstract.items():  # invert the inversion
-        for loc in locs:
-            abstract_dict[loc] = word
-    abstract = ' '.join(map(lambda x: x[1],  # pick the words
-                            sorted(abstract_dict.items())))  # sort abstract dictionary by indices
-    if len(abstract) == 0:
-        abstract = ''
-    return abstract
-
-
 def reconstruct_abstract(inv_abstract_st):
     if inv_abstract_st is None:
         return ''
-    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
+
     if isinstance(inv_abstract_st, bytes):
         inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
+    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
 
     inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
     abstract_dict = {}
-    # print(f'{type(inv_abstract)=}')
     for word, locs in inv_abstract.items():  # invert the inversion
         for loc in locs:
             abstract_dict[loc] = word
