@@ -8,12 +8,102 @@ Containers for different entities
 from dataclasses import dataclass, field
 from typing import Optional, List
 
+import orjson as json
 import pandas as pd
 import requests
 from tqdm.auto import tqdm
 
-from src.utils import ParquetIndices, get_rows, Paths, IDMap, get_partition_no, convert_openalex_id_to_int
+from src.utils import ParquetIndices, get_rows, Paths, IDMap, get_partition_no, convert_openalex_id_to_int, \
+    clean_string, reconstruct_abstract_new
 
+
+def process_json(work_json, work_indexer, id_map):
+    work_cols = ['id', 'doi', 'title', 'publication_year', 'publication_date', 'type',
+                 'cited_by_count', 'is_retracted', 'is_paratext', 'abstract_inverted_index', 'updated_date']
+
+    if (abstract := work_json.get('abstract_inverted_index')) is not None:
+        work_json['abstract_inverted_index'] = json.dumps(abstract)
+
+    work_row = {col: work_json.get(col, '') for col in work_cols}
+
+    if work_row['is_retracted'] or work_row['is_paratext']:
+        return None
+
+    work_id = convert_openalex_id_to_int(work_row['id'])
+    if work_id in work_indexer:
+        return None
+
+    work = Work(work_id=work_id)
+
+    work.publication_date = work_row['publication_date']
+    work.publication_year = work_row['publication_year']
+    work.title = clean_string(work_row['title'])
+    work.doi = work_row['doi']
+    work.type = work_row['type']
+    work.citations = work_row['cited_by_count']
+    work.abstract = reconstruct_abstract_new(work_row['abstract_inverted_index'])
+
+    # host venues
+    if host_venue := (work_json.get('host_venue') or {}):
+        if host_venue_id := host_venue.get('id'):
+            venue_id = convert_openalex_id_to_int(host_venue_id)
+            venue_name = clean_string(id_map.venue_id2name[venue_id])
+            venue = Venue(venue_id=venue_id, name=venue_name)
+        else:
+            venue = None
+    else:
+        venue = None
+    work.venue = venue
+    work.authors = []
+    # authorships
+    # sort them by order
+    if authorships := work_json.get('authorships'):
+        for authorship in authorships:
+            if author_id := authorship.get('author', {}).get('id'):
+                author_id = convert_openalex_id_to_int(author_id)
+                author_name = clean_string(authorship['author']['display_name'])
+
+                institutions = authorship.get('institutions')
+                institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
+                institution_ids = [i for i in institution_ids if i]
+
+                if len(institution_ids) > 0:
+                    institutions = [Institution(institution_id=inst_id, name=clean_string(id_map.inst_id2name[inst_id]))
+                                    for inst_id in institution_ids]
+                else:
+                    institutions = [None]
+                author = Author(author_id=author_id, name=author_name, position=authorship.get('author_position', ''))
+                author.insts = institutions
+                work.authors.append(author)
+
+    # concepts
+    work.concepts = []
+    for concept in work_json.get('concepts'):
+        if concept_id := concept.get('id'):
+            concept_id = convert_openalex_id_to_int(concept_id)
+            work.concepts.append(
+                Concept(concept_id=int(concept_id),
+                        name=id_map.concept_id2name[concept_id],
+                        score=float(concept.get('score')),
+                        level=id_map.concept_id2level[concept_id])
+            )
+
+    #         # referenced_works
+    #         for referenced_work in work_json.get('referenced_works'):
+    #             if referenced_work:
+    #                 ref_rows.append({
+    #                     'work_id': work_id,
+    #                     'referenced_work_id': referenced_work
+    #                 })
+
+    #         # related_works
+    #         for related_work in work_json.get('related_works'):
+    #             if related_work:
+    #                 rel_rows.append({
+    #                     'work_id': work_id,
+    #                     'related_work_id': related_work
+    #                 })
+    return work
 
 @dataclass
 class Institution:
@@ -48,39 +138,50 @@ class Author:
                              paths=paths).author_name.values[0]
         return
 
-    def get_all_author_works(self):
+    def parse_all_author_works(self, id_map, work_indexer):
         """
         Get all work ids for an author
-        TODO:
-
-        make a works class and use methods to populate info
         """
-        session = requests.Session()
 
-        url = f'https://api.openalex.org/works?filter=author.id:A{self.author_id}'
-        params = {'mailto': 'ssikdar@iu.edu', 'per-page': str(200)}
-        session.headers.update(params)
-        response = session.get(url, headers=session.headers, params=params)
-        assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
-        data = response.json()
-        session.close()
+        with requests.Session() as session:
+            url = f'https://api.openalex.org/works?filter=author.id:A{self.author_id}'
+            params = {'mailto': 'ssikdar@iu.edu', 'per-page': '200'}
+            session.headers.update(params)
+            response = session.get(url, headers=session.headers, params=params)
+            assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
+            data = response.json()
+            session.close()
 
-        works_count = data['meta']['count']
-        num_pages = works_count // data['meta']['per_page'] + 1
-        print(f'{self.author_id=} {self.name=} {works_count=:,} {num_pages=:,}')
+            works_count = data['meta']['count']
+            num_pages = works_count // data['meta']['per_page'] + 1
+            # print(f'{self.author_id=} {self.name=} {works_count=:,} {num_pages=:,}')
+            work_jsons = data['results']
 
-        work_ids = [int(res['id'].replace('https://openalex.org/W', '')) for res in data['results']]
-        if num_pages > 1:
-            for page in range(2, num_pages + 1):
-                new_url = url + f'&page={page}'
-                response = session.get(new_url, headers=session.headers, params=params)
-                assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
-                data = response.json()
-                work_ids.extend(
-                    [int(res['id'].replace('https://openalex.org/W', '')) for res in data['results']]
-                )
-        session.close()
-        return work_ids
+            if num_pages > 1:
+                for page in range(2, num_pages + 1):
+                    new_url = url + f'&page={page}'
+                    response = session.get(new_url, headers=session.headers, params=params)
+                    assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
+                    data = response.json()
+                    work_jsons.extend(data['results'])
+                    # for work_json in tqdm(data['results']):
+                    #     process_json(id_map=id_map, work_indexer=work_indexer, work_json=work_json)
+
+                    # work_ids.extend(
+                    #     [int(res['id'].replace('https://openalex.org/W', '')) for res in data['results']]
+                    # )
+
+            for work_json in tqdm(work_jsons, leave=False):
+                work = process_json(id_map=id_map, work_indexer=work_indexer, work_json=work_json)
+                if work is None:
+                    continue
+                try:
+                    bites = work_indexer.convert_to_bytes(work)
+                    work_indexer.dump_bytes(work_id=work.work_id, bites=bites)
+                except Exception as e:
+                    print(f'Exception {e=} for {work.work_id=}')
+
+        return
 
 
 @dataclass
