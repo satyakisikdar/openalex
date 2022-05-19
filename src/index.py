@@ -14,7 +14,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 import src.objects as objects
-from src.utils import Paths, IDMap, reconstruct_abstract, clean_string
+from src.utils import Paths, IDMap, reconstruct_abstract, clean_string, reconstruct_abstract_new
 
 
 class BaseIndexer:
@@ -52,10 +52,16 @@ class BaseIndexer:
             with open(self.offset_path, 'w') as fp:
                 fp.write('work_id,offset,len\n')
 
+        ix_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
+        df = pd.read_csv(self.offset_path, engine='c')
+
+        if self.kind != 'concepts':
+            df = df.drop_duplicates(subset=['work_id']).set_index('work_id')
+        else:
+            df = df.set_index('concept_id')
         return (
-            pd.read_csv(self.offset_path, index_col=0, engine='c')
-            .drop_duplicates()
-            .to_dict('index')
+            df
+                .to_dict('index')
         )
 
     def update_index_from_dump(self):
@@ -82,6 +88,9 @@ class BaseIndexer:
                     self.write_index(bites=work_bytes, id_=work_id)
                     updates += 1
 
+                if updates > 0 and updates % 100 == 0:
+                    print(f'Added {updates:,} new entries')
+
         if updates > 0:
             print(f'{updates:,} new entries added from dump')
 
@@ -101,7 +110,8 @@ class BaseIndexer:
             previous_len = 0
         else:
             # possible bug here..
-            last_key = list(self.offsets.keys())[-1]
+            # last_key = list(self.offsets.keys())[-1]
+            last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
             previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
 
         offset = previous_offset + previous_len
@@ -386,7 +396,14 @@ class WorkIndexer(BaseIndexer):
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
 
-        abstract = clean_string(reconstruct_abstract(work.abstract_inverted_index))  # abstract
+        try:
+            abstract = reconstruct_abstract(work.abstract_inverted_index)
+        except Exception as e:
+            try:
+                abstract = reconstruct_abstract_new(work.abstract_inverted_index)
+            except Exception as e:
+                abstract = ''
+
         # print(f'{abstract=!r}')
         bites.append(self.encoder.encode_string(abstract))
 
