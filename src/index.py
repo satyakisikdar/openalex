@@ -11,10 +11,11 @@ import abc
 import os
 
 import pandas as pd
+import requests
 from tqdm.auto import tqdm
 
 import src.objects as objects
-from src.utils import Paths, IDMap, reconstruct_abstract, clean_string
+from src.utils import Paths, IDMap, reconstruct_abstract, clean_string, reconstruct_abstract_new
 
 
 class BaseIndexer:
@@ -101,7 +102,8 @@ class BaseIndexer:
             previous_len = 0
         else:
             # possible bug here..
-            last_key = list(self.offsets.keys())[-1]
+            # last_key = list(self.offsets.keys())[-1]
+            last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
             previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
 
         offset = previous_offset + previous_len
@@ -176,24 +178,36 @@ class BaseIndexer:
             try:
                 obj = self.parse_bytes(offset=offset)
             except Exception as e:
-                print(f'Error decoding {id_=} {offset=}')
+                # print(f'Error decoding {id_=} {offset=}')
                 errors.append(id_)
                 continue
 
             work_id = obj[0] if self.kind == 'references' else obj.work_id
             if work_id != id_:
                 errors.append(id_)
-                print(f'Error in index for {id_}')
+                # print(f'Error in index for {id_}')
 
-        print(f'{len(errors)} errors found in the {self.kind!r} index')
+        print(f'{len(errors)=:,} errors found in the {self.kind!r} index')
 
         if fix and len(errors) > 0:
             index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
             offsets_df = pd.read_csv(self.offset_path, index_col=index_col)
-            offsets_df[~offsets_df.index.isin(errors)].to_csv(self.index_path / 'fixed_offsets.txt')
-            print(f'Fixed offsets written to file. Offsets updated for the object')
+            offsets_df = offsets_df[~offsets_df.index.isin(set(errors))]
+            offsets_df.to_csv(self.index_path / 'fixed_offsets.txt')
+
             self.offsets = self.read_offsets()
-        return errors
+
+            last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
+            previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
+            with open(self.data_path, 'rb') as reader:
+                stuff = reader.read(previous_offset + previous_len)
+
+            with open(self.index_path / 'fixed_data.txt', 'wb') as writer:
+                writer.write(stuff)
+
+            print(f'Fixed offsets & data written to files. Offsets updated for the object')
+
+        return
 
 
 class ConceptIndexer(BaseIndexer):
@@ -386,7 +400,9 @@ class WorkIndexer(BaseIndexer):
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
 
-        abstract = clean_string(reconstruct_abstract(work.abstract_inverted_index))  # abstract
+        abstract = reconstruct_abstract(work.abstract_inverted_index)  # abstract
+        if abstract == '':
+            abstract = reconstruct_abstract_new(work.abstract_inverted_index)  # abstract
         # print(f'{abstract=!r}')
         bites.append(self.encoder.encode_string(abstract))
 
@@ -469,3 +485,73 @@ class WorkIndexer(BaseIndexer):
                             publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
 
         return work
+
+
+class AuthorIndexer(BaseIndexer):
+    """
+    Indexer for Author works
+    """
+
+    def __init__(self, paths: Paths, indices, work_indexer, id_map):
+        super().__init__(paths=paths, indices=indices, kind='authors')
+        self.work_indexer = work_indexer
+        self.id_map = id_map
+        return
+
+    def convert_to_bytes(self, author: objects.Author) -> bytes:
+        """
+        #author_id, author_name, num_works, w1, w2, ...
+        """
+        bites = [
+            self.encoder.encode_id(id_=author.author_id),
+            self.encoder.encode_string(string=author.name),
+            self.encoder.encode_long_long_int(lli=len(author.work_ids))
+        ]
+
+        for w in tqdm(author.work_ids):
+            bites.extend([
+                self.encoder.encode_long_long_int(lli=w),
+            ])
+
+        return b''.join(bites)
+
+    def process_entry(self, author_id: int, write: bool):
+        if author_id in self.offsets:
+            return
+
+        email = 'xcs@nd.edu'
+
+        with requests.Session() as session:
+            url = f'https://api.openalex.org/A{author_id}'
+            params = {'mailto': email}
+            session.headers.update(params)
+            response = session.get(url, headers=session.headers, params=params)
+            if response.status_code != 200:
+                print(f'Status code: {response.status_code} author_id: {author_id}')
+                return
+            data = response.json()
+
+        author = objects.Author(author_id=author_id, name=data['display_name'])
+        author.parse_all_author_works(id_map=self.id_map, work_indexer=self.work_indexer)
+
+        bites = self.convert_to_bytes(author=author)
+        if write:
+            self.write_index(bites=bites, id_=author_id)
+        return bites
+
+    def parse_bytes(self, offset: int, reader=None):
+        if reader is None:
+            reader = open(self.data_path, 'rb')
+
+        reader.seek(offset)
+
+        author_id = self.decoder.decode_id(reader=reader)
+        author_name = self.decoder.decode_string(reader=reader)
+        works_count = self.decoder.decode_long_long_int(reader)
+
+        work_ids = []
+        for _ in range(works_count):
+            work_id = self.decoder.decode_long_long_int(reader)
+            work_ids.append(work_id)
+        assert works_count == len(work_ids), 'work ids dont match'
+        return author_id, author_name, work_ids
