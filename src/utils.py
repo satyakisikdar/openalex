@@ -91,6 +91,13 @@ class IDMap:
 def convert_openalex_id_to_int(openalex_id):
     if not openalex_id:
         return None
+    openalex_id = openalex_id.strip().replace('https://openalex.org/', '')
+    return int(openalex_id[1:])
+
+
+def convert_openalex_id_to_int_old(openalex_id):
+    if not openalex_id:
+        return None
     openalex_id = openalex_id.strip().upper().replace('https://openalex.org/', '')
     p = re.compile("([WAICV]\d{2,})")
     matches = re.findall(p, openalex_id)
@@ -106,7 +113,7 @@ def combined_dump_work_refs(work_id, work_indexer, ref_indexer):
     Dump bytes of work and its references to the respective dump files
     """
     process_and_dump_work(work_id=work_id, work_indexer=work_indexer)
-    # process_and_dump_references(work_id=work_id, ref_indexer=ref_indexer)
+    process_and_dump_references(work_id=work_id, ref_indexer=ref_indexer)
     return
 
 
@@ -442,13 +449,13 @@ def construct_abstracts(inv_abstracts):
     return abstracts
 
 
-def reconstruct_abstract(inv_abstract_st):
+def reconstruct_abstract_new(inv_abstract_st):
     if inv_abstract_st is None:
         return ''
 
     if isinstance(inv_abstract_st, bytes):
         inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
-    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
+    # inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
 
     inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
     abstract_dict = {}
@@ -461,6 +468,25 @@ def reconstruct_abstract(inv_abstract_st):
         abstract = ''
     return abstract
 
+
+def reconstruct_abstract(inv_abstract_st):
+    if inv_abstract_st is None:
+        return ''
+    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
+    if isinstance(inv_abstract_st, bytes):
+        inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
+
+    inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
+    abstract_dict = {}
+    # print(f'{type(inv_abstract)=}')
+    for word, locs in inv_abstract.items():  # invert the inversion
+        for loc in locs:
+            abstract_dict[loc] = word
+    abstract = ' '.join(map(lambda x: x[1],  # pick the words
+                            sorted(abstract_dict.items())))  # sort abstract dictionary by indices
+    if len(abstract) == 0:
+        abstract = ''
+    return abstract
 
 #
 # def blah:
