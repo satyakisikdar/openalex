@@ -125,6 +125,9 @@ def process_jsonl_file(jsonl_file, work_indexer, id_map):
 
     for i, line in tqdm(enumerate(lines), total=len(lines)):
         data = json.loads(line)
+        work_id = convert_openalex_id_to_int(data['id'])
+        if work_id in work_indexer:
+            continue
         work = process_json(data, work_indexer=work_indexer, id_map=id_map)
         if work is None:
             continue
@@ -153,7 +156,9 @@ def index_works_parallel(work_ids, num_workers, work_indexer, ref_indexer):
     index work ids in parallel
     """
     work_indexer.update_index_from_dump()  # update the data and offset files
-    ref_indexer.update_index_from_dump()  # update the data and offset files
+
+    if ref_indexer is not None:
+        ref_indexer.update_index_from_dump()  # update the data and offset files
 
     work_ids = list(work_ids)
 
@@ -217,10 +222,84 @@ def index_references_and_citations(num_workers, work_id, work_indexer, ref_index
     return
 
 
+def parse_all_concept_authors(concept_id):
+    """
+    Parses all works for authors who have written a paper tagged with a concept
+    """
+    paths = Paths()
+    indices = ParquetIndices(paths=paths)
+
+    id_map = IDMap(paths=paths)
+    work_indexer = WorkIndexer(paths=paths, indices=indices, id_map=id_map)
+
+    concept = Concept(concept_id=concept_id)
+    concept.populate_tagged_works(indices=indices, paths=paths)
+
+    print(f'{concept=}')
+
+    work_ids = [w for w, _ in concept.tagged_works]
+    missing_work_ids = [w for w in work_ids if w not in work_indexer]
+    print(f'{len(work_ids)=:,} {len(missing_work_ids)=:,}')
+
+    ## compute missing work ids
+    if len(missing_work_ids) > 0:
+        print(f'Missing {len(missing_work_ids)} for {concept.name}')
+        indices.initialize()
+        index_works_parallel(work_ids=missing_work_ids, num_workers=1, work_indexer=work_indexer, ref_indexer=None)
+
+    all_author_ids = set()
+    for work_id in tqdm(work_ids):
+        work = work_indexer[work_id]
+        # if 2005 <= work.publication_year <= 2015:
+        author_ids = set(author.author_id for author in work.authors)
+        all_author_ids.update(author_ids)
+
+    all_author_ids = list(all_author_ids)
+    print(f'{len(all_author_ids)=:,}')
+
+    work_indexer.update_index_from_dump()
+
+    ids = all_author_ids  # [2500:]
+    for i, author_id in tqdm(enumerate(ids), total=len(ids)):
+        author = Author(author_id=author_id)
+        author.parse_all_author_works(work_indexer=work_indexer, id_map=id_map)
+        if i > 0 and i % 100 == 0:
+            work_indexer.update_index_from_dump()
+
+    return
+
+
+def process_refs():
+    paths = Paths()
+    indices = ParquetIndices(paths=paths)
+
+    id_map = IDMap(paths=paths)
+    work_indexer = WorkIndexer(paths=paths, indices=indices, id_map=id_map)
+    ref_indexer = RefIndexer(paths=paths, indices=indices)
+
+    write_every = 500
+
+    for i, work_id in tqdm(enumerate(work_indexer.offsets.keys()), total=len(work_indexer.offsets)):
+        if work_id in ref_indexer:
+            continue
+        process_and_dump_references(ref_indexer=ref_indexer, work_id=work_id)
+        if i % write_every == 0:
+            ref_indexer.update_index_from_dump()
+
+    return
+
+
 def main():
+    process_refs()
     # parse(num_workers=6)
     # index_concept_tagged_works(num_workers=25, concept_id=34947359)
-    parse_works_v2()
+    # parse_works_v2()
+    # feshbach 39190425, neutrino oscillation: 107966497, soliton: 87651913, complex network: 34947359
+
+    # parse_all_concept_authors(concept_id=34947359)
+    # parse_all_concept_authors(concept_id=39190425)
+    # parse_all_concept_authors(concept_id=87651913)
+    # parse_all_concept_authors(concept_id=107966497)
     return
 
 
