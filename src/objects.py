@@ -31,7 +31,7 @@ def process_json(work_json, work_indexer, id_map):
 
     work_id = convert_openalex_id_to_int(work_row['id'])
     if work_id in work_indexer:
-        return None
+        return work_indexer[work_id]
 
     work = Work(work_id=work_id)
 
@@ -123,6 +123,7 @@ class Author:
     position: Optional[str] = None
     insts: List[Institution] = field(default_factory=lambda: [])
     url: Optional[str] = field(default=None, repr=False)
+    work_ids: Optional[list] = field(default_factory=lambda: [], repr=False)
 
     def __post_init__(self):
         self.url = f'https://openalex.org/A{self.author_id}'
@@ -142,15 +143,15 @@ class Author:
         """
         Get all work ids for an author
         """
+        email = 'as@nd.edu'
 
         with requests.Session() as session:
             url = f'https://api.openalex.org/works?filter=author.id:A{self.author_id}'
-            params = {'mailto': 'ssikdar@iu.edu', 'per-page': '200'}
+            params = {'mailto': email, 'per-page': '200'}
             session.headers.update(params)
             response = session.get(url, headers=session.headers, params=params)
             assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
             data = response.json()
-            session.close()
 
             works_count = data['meta']['count']
             num_pages = works_count // data['meta']['per_page'] + 1
@@ -172,14 +173,18 @@ class Author:
                     # )
 
             for work_json in tqdm(work_jsons, leave=False):
-                work = process_json(id_map=id_map, work_indexer=work_indexer, work_json=work_json)
-                if work is None:
-                    continue
-                try:
-                    bites = work_indexer.convert_to_bytes(work)
-                    work_indexer.dump_bytes(work_id=work.work_id, bites=bites)
-                except Exception as e:
-                    print(f'Exception {e=} for {work.work_id=}')
+                work_id = convert_openalex_id_to_int(work_json['id'])
+                if work_id in work_indexer:
+                    self.work_ids.append(work_id)
+                else:
+                    work = process_json(id_map=id_map, work_indexer=work_indexer, work_json=work_json)
+                    if work is None:
+                        continue
+                    try:
+                        bites = work_indexer.convert_to_bytes(work)
+                        work_indexer.dump_bytes(work_id=work.work_id, bites=bites)
+                    except Exception as e:
+                        print(f'Exception {e=} for {work.work_id=}')
 
         return
 
@@ -195,6 +200,46 @@ class Concept:
     works_count: Optional[int] = None
     related_concepts: Optional[list] = field(default_factory=lambda: [], repr=False)
     ancestors: Optional[list] = field(default_factory=lambda: [], repr=False)
+
+    def parse_works(self, work_indexer, id_map):
+        email = 'as@nd.edu'
+
+        with requests.Session() as session:
+            url = f'https://api.openalex.org/works?filter=concepts.id:C{self.concept_id}'
+            params = {'mailto': email, 'per-page': '200'}
+            session.headers.update(params)
+            response = session.get(url, headers=session.headers, params=params)
+            assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
+            data = response.json()
+
+            works_count = data['meta']['count']
+            num_pages = works_count // data['meta']['per_page'] + 1
+            # print(f'{self.author_id=} {self.name=} {works_count=:,} {num_pages=:,}')
+            work_jsons = data['results']
+
+            if num_pages > 1:
+                for page in range(2, num_pages + 1):
+                    new_url = url + f'&page={page}'
+                    response = session.get(new_url, headers=session.headers, params=params)
+                    assert response.status_code == 200, f'Response code: {response.status_code} {url=}'
+                    data = response.json()
+                    work_jsons.extend(data['results'])
+
+            for work_json in tqdm(work_jsons, leave=False):
+                work_id = convert_openalex_id_to_int(work_json['id'])
+                if work_id in work_indexer:
+                    self.work_ids.append(work_id)
+                else:
+                    work = process_json(id_map=id_map, work_indexer=work_indexer, work_json=work_json)
+                    if work is None:
+                        continue
+                    try:
+                        bites = work_indexer.convert_to_bytes(work)
+                        work_indexer.dump_bytes(work_id=work.work_id, bites=bites)
+                    except Exception as e:
+                        print(f'Exception {e=} for {work.work_id=}')
+
+        return
 
     def populate_related_and_ancestor_concepts(self):
         session = requests.Session()
@@ -253,6 +298,7 @@ class Concept:
         part_no = get_partition_no(id_=self.concept_id, kind=kind, ix_df=indices[kind])
 
         if part_no is None:
+            print('Part no not found')
             return
 
         concepts_work_rows = get_rows(id_=self.concept_id, id_col='concept_id', kind=kind, paths=paths, part_no=part_no)
