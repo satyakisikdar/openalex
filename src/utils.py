@@ -148,6 +148,22 @@ def process_and_dump_references(work_id, ref_indexer):
     return
 
 
+def get_concept_id(name) -> int:
+    cached = {'Complex network': 'C34947359', 'Computer science': 'C41008148', 'Physics': 'C121332964',
+              'Network science': 'C137753397', 'Graphene': 'C30080830', 'Feshbach resonance': 'C39190425',
+              'Soliton': 'C87651913', 'Dark matter': 'C159249277', 'Mathematics': 'C33923547', 'Biology': 'C86803240',
+              'Math': 'C33923547', 'Neutrino oscillation': 'C107966497', 'Photoionization': 'C158749347',
+              'String theory': 'C49987212', 'General relativity': 'C147452769', 'Percolation theory': 'C11557063',
+              'Magnetoresistance': 'C117958382', 'Quantum gravity': 'C108568745', 'Josephson effect': 'C12038964',
+              'Quantum Hall effect': 'C200369452', 'Inflation (cosmology)': 'C200941418',
+              'Photoemission spectroscopy': 'C51286037', 'Supersymmetry': 'C116674579'}
+    if name in cached:
+        id_ = cached[name]
+    else:
+        raise Exception(f'ID not found for {name}')
+    return int(id_.replace('C', ''))
+
+
 def get_author_id(name) -> int:
     cached = {'Santo': 'A2122189410', 'Santo Fortunato': 'A2122189410', 'Barabasi': 'A2195478976',
               'Mark Newman': 'A2394749673', 'Parisi': 'A2163147449', 'Cirac': 'A2103728845',
