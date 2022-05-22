@@ -191,13 +191,13 @@ class BaseIndexer:
 
         if fix and len(errors) > 0:
             index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
-            offsets_df = pd.read_csv(self.offset_path, index_col=index_col)
+            offsets_df = pd.read_csv(self.offset_path, engine='c', index_col=index_col)
             offsets_df = offsets_df[~offsets_df.index.isin(set(errors))]
             offsets_df.to_csv(self.index_path / 'fixed_offsets.txt')
 
             self.offsets = self.read_offsets()
-
-            last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
+            last_key = offsets_df.tail(1).index.values[0]
+            # last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
             previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
             with open(self.data_path, 'rb') as reader:
                 stuff = reader.read(previous_offset + previous_len)
