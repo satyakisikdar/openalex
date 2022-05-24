@@ -8,6 +8,7 @@ Containers for different entities
 from dataclasses import dataclass, field
 from typing import Optional, List
 
+import orjson
 import orjson as json
 import pandas as pd
 import requests
@@ -21,9 +22,6 @@ def process_json(work_json, work_indexer, id_map):
     work_cols = ['id', 'doi', 'title', 'publication_year', 'publication_date', 'type',
                  'cited_by_count', 'is_retracted', 'is_paratext', 'abstract_inverted_index', 'updated_date']
 
-    if (abstract := work_json.get('abstract_inverted_index')) is not None:
-        work_json['abstract_inverted_index'] = json.dumps(abstract)
-
     work_row = {col: work_json.get(col, '') for col in work_cols}
 
     if work_row['is_retracted'] or work_row['is_paratext']:
@@ -31,7 +29,8 @@ def process_json(work_json, work_indexer, id_map):
 
     work_id = convert_openalex_id_to_int(work_row['id'])
     if work_id in work_indexer:
-        return work_indexer[work_id]
+        return None
+    #     return work_indexer[work_id]
 
     work = Work(work_id=work_id)
 
@@ -41,7 +40,15 @@ def process_json(work_json, work_indexer, id_map):
     work.doi = work_row['doi']
     work.type = work_row['type']
     work.citations = work_row['cited_by_count']
-    work.abstract = reconstruct_abstract_new(work_row['abstract_inverted_index'])
+
+    try:
+        if (abstract := work_json.get('abstract_inverted_index')) is not None:
+            work_row['abstract_inverted_index'] = json.dumps(abstract)
+
+        work.abstract = reconstruct_abstract_new(work_row['abstract_inverted_index'])
+    except orjson.JSONDecodeError as e:
+        print('JSON decode error abstract')
+        work.abstract = ''
 
     # host venues
     if host_venue := (work_json.get('host_venue') or {}):

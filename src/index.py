@@ -529,11 +529,12 @@ class NewWorkIndexer(BaseIndexer):
 
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
-
-        abstract = reconstruct_abstract(work.abstract_inverted_index)  # abstract
-        if abstract == '':
-            abstract = reconstruct_abstract_new(work.abstract_inverted_index)  # abstract
-        # print(f'{abstract=!r}')
+        abstract = work.abstract
+        # abstract = reconstruct_abstract(work.abstract_inverted_index)  # abstract
+        # if abstract == '':
+        #     abstract = reconstruct_abstract_new(work.abstract_inverted_index)  # abstract
+        # if abstract != '':
+        #     print(f'{abstract=!r}')
         bites.append(self.encoder.encode_string(abstract))
 
         # add author info
