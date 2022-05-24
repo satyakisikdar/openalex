@@ -54,9 +54,9 @@ class BaseIndexer:
                 fp.write('work_id,offset,len\n')
 
         return (
-            pd.read_csv(self.offset_path, index_col=0, engine='c')
-            .drop_duplicates()
-            .to_dict('index')
+            pd.read_csv(self.offset_path, index_col=0, dtype=int, engine='pyarrow')
+                # .drop_duplicates()
+                .to_dict('index')
         )
 
     def update_index_from_dump(self):
@@ -191,7 +191,7 @@ class BaseIndexer:
 
         if fix and len(errors) > 0:
             index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
-            offsets_df = pd.read_csv(self.offset_path, engine='c', index_col=index_col)
+            offsets_df = pd.read_csv(self.offset_path, engine='pyarrow', index_col=index_col)
             offsets_df = offsets_df[~offsets_df.index.isin(set(errors))]
             offsets_df.to_csv(self.index_path / 'fixed_offsets.txt')
 
@@ -482,6 +482,159 @@ class WorkIndexer(BaseIndexer):
 
         work = objects.Work(work_id=work_id, part_no=part_no, type=work_type, doi=doi, title=title,
                             publication_year=year,
+                            publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
+
+        return work
+
+
+class NewWorkIndexer(BaseIndexer):
+    """
+        Write work information into a binary file
+        #,work_id, type, DOI, title, venue_id, date, year, abstract
+    """
+
+    def __init__(self, paths: Paths, indices, id_map: IDMap):
+        super().__init__(paths, indices, kind='new-works')
+        self.id_map = id_map
+        self.ref_indexer = RefIndexer(paths=self.paths, indices=self.indices)
+        return
+
+    def process_entry(self, work_id: int, write: bool = True):
+        work = objects.Work(work_id=work_id, paths=self.paths)
+        work.populate_info(indices=self.indices)
+        work.populate_venue(indices=self.indices, id_map=self.id_map)
+        work.populate_authors(indices=self.indices)
+        work.populate_concepts(indices=self.indices, id_map=self.id_map)
+        bites = self.convert_to_bytes(work=work)
+
+        if write:
+            self.write_index(id_=work_id, bites=bites)
+        return work
+
+    def convert_to_bytes(self, work) -> bytes:
+        bites = [
+            self.encoder.encode_id(id_=work.work_id),
+            self.encoder.encode_int(i=work.part_no),
+            self.encoder.encode_work_type(typ=work.type)
+        ]
+
+        cleaned_title = clean_string(work.title)
+        year = work.publication_year if work.publication_year is not None else 0
+        bites.extend([
+            self.encoder.encode_string(string=work.doi),  # DOI
+            self.encoder.encode_string(string=cleaned_title),  # title
+
+            self.encoder.encode_int(i=year),
+            self.encoder.encode_string(string=work.publication_date),
+
+            self.encoder.encode_venue(venue=work.venue),  # venue
+        ])
+
+        abstract = reconstruct_abstract(work.abstract_inverted_index)  # abstract
+        if abstract == '':
+            abstract = reconstruct_abstract_new(work.abstract_inverted_index)  # abstract
+        # print(f'{abstract=!r}')
+        bites.append(self.encoder.encode_string(abstract))
+
+        # add author info
+        bites.append(self.encoder.encode_int(i=len(work.authors)))  # number of authors
+
+        bites.extend([
+            self.encoder.encode_author(author=auth) for auth in work.authors  # add authors
+        ])
+
+        # add concept info
+        bites.append(self.encoder.encode_int(i=len(work.concepts)))
+
+        bites.extend([
+            self.encoder.encode_concept(concept=concept) for concept in work.concepts
+        ])
+
+        # add references
+        bites.append(self.encoder.encode_long_int(li=len(work.references)))  # number of references
+        bites.extend(
+            self.encoder.encode_long_long_int(lli=ref_w) for ref_w in work.references
+        )
+
+        # add related works
+        bites.append(self.encoder.encode_long_int(li=len(work.related_works)))  # number of references
+        bites.extend(
+            self.encoder.encode_long_long_int(lli=rel_w) for rel_w in work.related_works
+        )
+        return b''.join(bites)
+
+    def dump_bytes(self, work_id: int, bites: bytes):
+        """
+        Write the work_id, len(work_id), and bytes in dumps.txt
+        """
+        content = [
+            self.encoder.encode_id(id_=work_id),
+            self.encoder.encode_long_int(li=len(bites)),  # length of bytes
+            bites,
+        ]
+        content = b''.join(content)
+        with open(self.dump_path, 'ab') as writer:
+            writer.write(content)
+        return
+
+    def parse_bytes(self, offset: int, reader=None) -> objects.Work:
+        if reader is None:
+            reader = open(self.data_path, 'rb')
+        reader.seek(offset)
+
+        work_id = self.decoder.decode_id(reader)
+        # print(f'{work_id=}')
+
+        part_no = self.decoder.decode_int(reader)
+        # print(f'{part_no=}')
+
+        work_type = self.decoder.decode_work_type(reader)
+        # print(f'{work_type=}')
+
+        doi = self.decoder.decode_string(reader)
+        # print(f'{doi=}')
+
+        title = self.decoder.decode_string(reader)
+        # print(f'{title=}')
+
+        year = self.decoder.decode_int(reader)
+        # print(f'{year=}')
+
+        assert year < 3000, f'year {year} out of range!'
+
+        date = self.decoder.decode_string(reader)
+        # print(f'{date=}')
+
+        venue = self.decoder.decode_venue(reader)
+        # print(f'{venue=}')
+
+        abstract = self.decoder.decode_string(reader)
+        # print(f'{abstract=}')
+
+        num_authors = self.decoder.decode_int(reader)
+        # print(f'{num_authors=}')
+
+        authors = [self.decoder.decode_author(reader) for _ in range(num_authors)]
+
+        num_concepts = self.decoder.decode_int(reader)
+        # print(f'{num_concepts=}')
+
+        concepts = [self.decoder.decode_concept(reader) for _ in range(num_concepts)]
+
+        num_refs = self.decoder.decode_long_int(reader)
+        # print(f'{num_refs=}')
+
+        references = {self.decoder.decode_long_long_int(reader) for _ in range(num_refs)}
+
+        num_related_works = self.decoder.decode_long_int(reader)
+        # print(f'{num_related_works=}')
+
+        related_works = {self.decoder.decode_long_long_int(reader) for _ in range(num_related_works)}
+
+        reader.close()
+
+        work = objects.Work(work_id=work_id, part_no=part_no, type=work_type, doi=doi, title=title,
+                            publication_year=year, references=references, related_works=related_works,
                             publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
 
         return work
