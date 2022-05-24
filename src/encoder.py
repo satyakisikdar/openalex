@@ -67,7 +67,7 @@ class EncoderDecoder:
 
     def decode_string(self, reader, encoding='utf-8') -> str:
         str_len, = struct.unpack('L', reader.read(8))
-        assert isinstance(str_len, int) and str_len >= 0, f'String length {str_len} not an int'
+        # assert isinstance(str_len, int) and str_len >= 0, f'String length {str_len} not an int'
         content, = struct.unpack(f'{str_len}s', reader.read(str_len))
         return content.decode(encoding)
 
