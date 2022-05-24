@@ -8,6 +8,7 @@ Works Concepts: workid, num concepts, [concept1, score1, concept2, score2, ... ]
 Concept Works: concept_id,  num_works [work1, score1, work2, score2, ... ]
 """
 import abc
+import io
 import os
 
 import pandas as pd
@@ -68,6 +69,14 @@ class BaseIndexer:
 
         updates = 0
         with open(self.dump_path, 'rb') as reader:
+            stuff = reader.read()
+
+        if len(stuff) == 0:
+            return
+
+        reader = io.BytesIO(stuff)
+        with tqdm(total=len(stuff), miniters=1, colour='orange', desc='Updating data...',
+                  unit='B', unit_scale=True, unit_divisor=1024) as pbar:
             while True:
                 bite = reader.read(1)
                 if not bite:
@@ -77,6 +86,9 @@ class BaseIndexer:
                 # print(f'Reading {work_id=} from dumps')
                 len_ = self.decoder.decode_long_int(reader)
                 work_bytes = reader.read(len_)  # read the bytes
+
+                pbar.set_postfix(updates=updates, refresh=False)
+                pbar.update(1 + 8 + len_)
 
                 if work_id not in self.offsets:
                     # print(f'Writing new {work_id=} to offsets')
@@ -89,6 +101,7 @@ class BaseIndexer:
         # clear out the dumps file
         writer = open(self.dump_path, 'wb')
         writer.close()
+        reader.close()
         return
 
     def write_index(self, bites: bytes, id_: int):
@@ -171,7 +184,7 @@ class BaseIndexer:
         if start != 0:
             print(f'Starting at {start=:,}')
 
-        for id_ in tqdm(ids):
+        for id_ in tqdm(ids, desc='Validating index..'):
 
             offset = self.offsets[id_]['offset']
             # print(f'{id_=} {offset=}')
@@ -187,7 +200,7 @@ class BaseIndexer:
                 errors.append(id_)
                 # print(f'Error in index for {id_}')
 
-        print(f'{len(errors)=:,} errors found in the {self.kind!r} index')
+        print(f'{len(errors):,} errors found in the {self.kind!r} index')
 
         if fix and len(errors) > 0:
             index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
