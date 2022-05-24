@@ -88,22 +88,17 @@ def process_json(work_json, work_indexer, id_map):
                         level=id_map.concept_id2level[concept_id])
             )
 
-    #         # referenced_works
-    #         for referenced_work in work_json.get('referenced_works'):
-    #             if referenced_work:
-    #                 ref_rows.append({
-    #                     'work_id': work_id,
-    #                     'referenced_work_id': referenced_work
-    #                 })
+    # referenced_works
+    for referenced_work in work_json.get('referenced_works'):
+        if referenced_work:
+            work.references.add(convert_openalex_id_to_int(referenced_work))
 
-    #         # related_works
-    #         for related_work in work_json.get('related_works'):
-    #             if related_work:
-    #                 rel_rows.append({
-    #                     'work_id': work_id,
-    #                     'related_work_id': related_work
-    #                 })
+    # related_works
+    for related_work in work_json.get('related_works'):
+        if related_work:
+            work.related_works.add(convert_openalex_id_to_int(related_work))
     return work
+
 
 @dataclass
 class Institution:
@@ -353,9 +348,10 @@ class Work:
     authors: List[Author] = field(default_factory=lambda: [], repr=False)
     concepts: List[Concept] = field(default_factory=lambda: [], repr=False)
     citations: int = None  # number of citations
-    references: set = field(default=None, repr=False)  # set of reference works
+    references: set = field(default_factory=lambda: set(), repr=False)  # set of references works
     citing_works: set = field(default=None, repr=False)  # set of citing works
     cocited_works: set = field(default=None, repr=False)  # set of co-cited works
+    related_works: set = field(default_factory=lambda: set(), repr=False)  # set of related works
 
     def __post_init__(self):
         self.url = f'https://openalex.org/W{self.work_id}'
