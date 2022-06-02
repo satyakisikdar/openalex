@@ -45,7 +45,7 @@ class BaseIndexer:
         self.ref_indexer = None  # None except in Work Indexer class
         return
 
-    def read_offsets(self) -> pd.DataFrame:
+    def read_offsets(self, parquet: bool = False) -> pd.DataFrame:
         """
         Read offsets from a file
         :return:
@@ -54,11 +54,12 @@ class BaseIndexer:
             with open(self.offset_path, 'w') as fp:
                 fp.write('work_id,offset,len\n')
 
-        return (
-            pd.read_csv(self.offset_path, index_col=0, dtype=int, engine='pyarrow')
-                # .drop_duplicates()
-                .to_dict('index')
-        )
+        if parquet and (self.index_path / 'offsets.parquet').exists():
+            df = pd.read_parquet(self.index_path / 'offsets.parquet')
+        else:
+            df = pd.read_csv(self.offset_path, index_col=0, dtype=int, engine='pyarrow')
+        offsets_dict = df.to_dict('index')
+        return offsets_dict
 
     def update_index_from_dump(self):
         """
@@ -86,14 +87,13 @@ class BaseIndexer:
                 # print(f'Reading {work_id=} from dumps')
                 len_ = self.decoder.decode_long_int(reader)
                 work_bytes = reader.read(len_)  # read the bytes
-
-                pbar.set_postfix(updates=updates, refresh=False)
                 pbar.update(1 + 8 + len_)
 
                 if work_id not in self.offsets:
                     # print(f'Writing new {work_id=} to offsets')
                     self.write_index(bites=work_bytes, id_=work_id)
                     updates += 1
+                    pbar.set_postfix(updates=updates, refresh=False)
 
         if updates > 0:
             print(f'{updates:,} new entries added from dump')
@@ -170,7 +170,62 @@ class BaseIndexer:
     def parse_bytes(self, offset: int, reader=None):
         pass
 
-    def validate_and_fix_index(self, fix: bool = True, start=0):
+    def validate_and_fix_index(self, fix: bool = True, start: int = 0, read_offsets: bool = True):
+        """
+        Validate the index by matching the work id / concept id from the extracted object with that of the offset file
+        """
+
+        # TODO: fix bug when the last entry is corrupted. The data file needs to be updated
+        # TODO: otherwise the indices will not work
+
+        errors = []
+        if read_offsets:
+            self.offsets = self.read_offsets()
+
+        if start != 0:
+            print(f'Starting at {start=:,}')
+
+        ids = list(self.offsets.keys())[start:]
+        with tqdm(total=len(ids), desc='Validating index', unit_scale=True, unit=' works') as pbar:
+            for id_ in ids:
+                offset = self.offsets[id_]['offset']
+                pbar.update(1)
+                # print(f'{id_=} {offset=}')
+                try:
+                    obj = self.parse_bytes(offset=offset)
+                except Exception as e:
+                    # print(f'Error decoding {id_=} {offset=}')
+                    errors.append(id_)
+                    continue
+
+                work_id = obj[0] if self.kind == 'references' else obj.work_id
+                if work_id != id_:
+                    errors.append(id_)
+                    # print(f'Error in index for {id_}')
+                pbar.set_postfix_str(f'{errors:,} errors', refresh=False)
+            print(f'{len(errors)=:,} errors found in the {self.kind!r} index')
+        print('done')
+        if fix and len(errors) > 0:
+            index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
+            offsets_df = pd.read_csv(self.offset_path, engine='pyarrow', index_col=index_col)
+            offsets_df = offsets_df[~offsets_df.index.isin(set(errors))]
+            offsets_df.to_csv(self.index_path / 'fixed_offsets.txt')
+
+            last_key = offsets_df.tail(1).index.values[0]
+            # last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
+            previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
+            with open(self.data_path, 'rb') as reader:
+                stuff = reader.read(previous_offset + previous_len)
+
+            with open(self.index_path / 'fixed_data.txt', 'wb') as writer:
+                writer.write(stuff)
+
+            print(f'Fixed offsets & data written to files. Offsets updated for the object')
+
+        return
+
+
+    def _validate_and_fix_index(self, fix: bool = True, start=0):
         """
         Validate the index by matching the work id / concept id from the extracted object with that of the offset file
         """
