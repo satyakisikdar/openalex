@@ -10,7 +10,7 @@ Concept Works: concept_id,  num_works [work1, score1, work2, score2, ... ]
 import abc
 import io
 import os
-
+import subprocess
 import pandas as pd
 import requests
 from tqdm.auto import tqdm
@@ -45,7 +45,7 @@ class BaseIndexer:
         self.ref_indexer = None  # None except in Work Indexer class
         return
 
-    def read_offsets(self, parquet: bool = False) -> pd.DataFrame:
+    def _read_offsets(self, parquet: bool = False) -> pd.DataFrame:
         """
         Read offsets from a file
         :return:
@@ -60,6 +60,27 @@ class BaseIndexer:
             df = pd.read_csv(self.offset_path, index_col=0, dtype=int, engine='pyarrow')
         offsets_dict = df.to_dict('index')
         return offsets_dict
+
+    def read_offsets(self):
+        """
+        New reader that reads the offset file and create the dictionary directly
+        """
+        # how long does it take to read offsets using a file
+        d = {}
+        path = self.offset_path
+        num_lines = int(subprocess.check_output(f'wc -l {path}', shell=True).decode('utf-8').split()[0])
+        print(f'{num_lines:,} entries in the offset')
+        reader = io.StringIO(open(path).read())
+
+        for i, line in enumerate(tqdm(reader, total=num_lines, unit_scale=True, unit=' works',
+                                      desc='Reading offsets...')):
+            if i == 0:
+                continue
+            work_id, offset, length = map(int, line.split(','))
+            d[work_id] = {'offset': offset, 'len': length}
+        reader.close()
+        return d
+
 
     def update_index_from_dump(self):
         """
@@ -87,13 +108,13 @@ class BaseIndexer:
                 # print(f'Reading {work_id=} from dumps')
                 len_ = self.decoder.decode_long_int(reader)
                 work_bytes = reader.read(len_)  # read the bytes
-                pbar.update(1 + 8 + len_)
+                pbar.update(1 + 8 + len_ + 8)
 
                 if work_id not in self.offsets:
                     # print(f'Writing new {work_id=} to offsets')
                     self.write_index(bites=work_bytes, id_=work_id)
                     updates += 1
-                    pbar.set_postfix(updates=updates, refresh=False)
+                # pbar.set_postfix(updates=updates, refresh=False)
 
         if updates > 0:
             print(f'{updates:,} new entries added from dump')
