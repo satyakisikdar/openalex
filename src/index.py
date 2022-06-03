@@ -206,7 +206,13 @@ class BaseIndexer:
         if start != 0:
             print(f'Starting at {start=:,}')
 
-        ids = list(self.offsets.keys())[start:]
+        if start < 0:
+            cmd = f'tail {start} {self.offset_path}'
+            stuff = subprocess.check_output(cmd, shell=True).decode('utf-8')
+            ids = tuple(pd.read_csv(io.StringIO(stuff), dtype='int', header=None, engine='c').iloc[:, 0])
+        else:
+            ids = list(self.offsets.keys())[start:]
+
         with tqdm(total=len(ids), desc='Validating index', unit_scale=True, unit=' works') as pbar:
             for id_ in ids:
                 offset = self.offsets[id_]['offset']
@@ -223,9 +229,9 @@ class BaseIndexer:
                 if work_id != id_:
                     errors.append(id_)
                     # print(f'Error in index for {id_}')
-                pbar.set_postfix_str(f'{errors:,} errors', refresh=False)
-            print(f'{len(errors)=:,} errors found in the {self.kind!r} index')
-        print('done')
+                pbar.set_postfix_str(f'{len(errors):,} errors', refresh=False)
+            print(f'{len(errors):,} errors found in the {self.kind!r} index')
+
         if fix and len(errors) > 0:
             index_col = 'concept_id' if self.kind == 'concepts' else 'work_id'
             offsets_df = pd.read_csv(self.offset_path, engine='pyarrow', index_col=index_col)
@@ -585,7 +591,7 @@ class NewWorkIndexer(BaseIndexer):
     def __init__(self, paths: Paths, indices, id_map: IDMap):
         super().__init__(paths, indices, kind='new-works')
         self.id_map = id_map
-        self.ref_indexer = RefIndexer(paths=self.paths, indices=self.indices)
+        # self.ref_indexer = RefIndexer(paths=self.paths, indices=self.indices)
         return
 
     def process_entry(self, work_id: int, write: bool = True):
