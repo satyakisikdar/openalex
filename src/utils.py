@@ -1,6 +1,7 @@
 import ast
 import gzip
 import multiprocessing
+import pickle
 import re
 import time
 import unicodedata
@@ -27,11 +28,11 @@ class Paths:
         self.temp_dir = self.basepath / 'ssikdar' / 'temp'
         self.aps_parq_dir = self.basepath / 'APS' / 'new' / 'parquets'
         self.aps_csv_dir = self.basepath / 'APS' / 'new' / 'csvs'
-        # self.parq_dir = self.processed_dir / 'OPTIMIZED'
-        self.parq_dir = Path('/N/scratch/ssikdar/openalex')
-        self.compressed_path = self.parq_dir / 'compressed'
+
+        self.scratch_dir = Path('/N/scratch/ssikdar/openalex')
+        self.compressed_path = self.scratch_dir / 'compressed'
         # self.ix_path = self.parq_dir / 'indices'
-        self.ix_path = Path('/N/scratch/ssikdar/openalex/indices')  # compressed index stored here
+        self.ix_path = self.scratch_dir / 'indices'  # compressed index stored here
         return
 
 
@@ -156,11 +157,18 @@ def get_concept_id(name) -> int:
               'String theory': 'C49987212', 'General relativity': 'C147452769', 'Percolation theory': 'C11557063',
               'Magnetoresistance': 'C117958382', 'Quantum gravity': 'C108568745', 'Josephson effect': 'C12038964',
               'Quantum Hall effect': 'C200369452', 'Inflation (cosmology)': 'C200941418',
-              'Photoemission spectroscopy': 'C51286037', 'Supersymmetry': 'C116674579'}
+              'Photoemission spectroscopy': 'C51286037', 'Supersymmetry': 'C116674579',
+              'Artificial intelligence': 'C154945302', 'Machine learning': 'C119857082', 'Data mining': 'C124101348',
+              'Chemistry': 'C185592680', 'Medicine': 'C71924100', 'Quantum electrodynamics': 'C3079626',
+              'Quantum mechanics': 'C62520636'}
     if name in cached:
         id_ = cached[name]
     else:
-        raise Exception(f'ID not found for {name}')
+        url = f'https://api.openalex.org/concepts?filter=display_name.search:{name}'
+        json = requests.get(url, params={'mailto': 'ssikdar@iu.edu'}).json()
+        # pick the top result
+        id_ = json['results'][0]['id'].replace('https://openalex.org/', '')
+        cached[name] = id_
     return int(id_.replace('C', ''))
 
 
@@ -176,7 +184,6 @@ def get_author_id(name) -> int:
         json = requests.get(url, params={'mailto': 'ssikdar@iu.edu'}).json()
         # pick the top result
         id_ = json['results'][0]['id'].replace('https://openalex.org/', '')
-        ""
     return int(id_.replace('A', ''))
 
 
@@ -293,7 +300,7 @@ def get_rows(id_: int, kind: str, paths: Paths, part_no: int, id_col: str = 'wor
         for n in part_no:
             # df = pd.read_parquet(paths.parq_dir / kind / f'part.{n}.parquet', filters=[(id_col, '=', id_)])
             df = (
-                ParquetFile(paths.parq_dir / kind / f'part.{n}.parquet')
+                ParquetFile(str(paths.parq_dir / kind / f'part.{n}.parquet'))
                     .to_pandas(filters=[(id_col, '=', id_)])
                     .loc[[id_]]
             )
@@ -504,133 +511,15 @@ def reconstruct_abstract(inv_abstract_st):
         abstract = ''
     return abstract
 
-#
-# def blah:
-#     concept_id2name = (
-#         pd.read_parquet(parq_path / 'concepts', columns=['id', 'display_name'])
-#             .assign(idx=lambda df_: pd.to_numeric(
-#             df_.id.str.replace('https://openalex.org/C', '', regex=False)
-#         ))
-#             .set_index('idx')
-#             .display_name
-#             .to_dict()
-#     )
-#
-#     concept_id2level = (
-#         pd.read_parquet(parq_path / 'concepts', columns=['id', 'level'])
-#             .assign(idx=lambda df_: pd.to_numeric(
-#             df_.id.str.replace('https://openalex.org/C', '', regex=False)
-#         ))
-#             .set_index('idx')
-#             .level
-#             .to_dict()
-#     )
-#
-#     venue_id2name = (
-#         pd.read_parquet(parq_path / 'venues', columns=['id', 'display_name'])
-#             .assign(idx=lambda df_: pd.to_numeric(
-#             df_.id.str.replace('https://openalex.org/V', '', regex=False)
-#         ))
-#             .set_index('idx')
-#             .display_name
-#             .to_dict()
-#     )
-#
-#
-# def parallel_read(df, i, kind):
-#     if kind == 'authors':
-#         if not (opt_parq_path / 'authors').exists():
-#             os.makedirs(opt_parq_path / 'authors', exist_ok=True)
-#
-#         output_file = opt_parq_path / f'authors/part.{i}.parquet'
-#
-#     elif kind == 'works':
-#         if not (opt_parq_path / 'works').exists():
-#             os.makedirs(opt_parq_path / 'works', exist_ok=True)
-#
-#         output_file = opt_parq_path / f'works/part.{i}.parquet'
-#
-#     else:
-#         output_file = opt_parq_path / f'works_{kind}/part.{i}.parquet'
-#         if not (opt_parq_path / f'works_{kind}').exists():
-#             os.makedirs(opt_parq_path / f'works_{kind}', exist_ok=True)
-#
-#     if output_file.exists():
-#         print('File exists!', output_file.stem)
-#         return
-#
-#     print(f'{i=} {kind=} {len(df)=:,}')
-#
-#     if kind == 'works':
-#         df.loc[:, 'id'] = pd.to_numeric(df.id.str.replace('https://openalex.org/W', '', regex=False))
-#         df = df[(~df.is_retracted) & (~df.is_paratext)]
-#         df = df[['id', 'doi', 'title',
-#                  'publication_year', 'publication_date',
-#                  'type', 'abstract_inverted_index']]
-#         df = df.rename(columns={'id': 'work_id'})
-#         ix = 'work_id'
-#
-#     elif kind == 'authors':  # for the authors table
-#         df.loc[:, 'id'] = pd.to_numeric(df.id.str.replace('https://openalex.org/A', '', regex=False))
-#         df = df[['id', 'orcid', 'display_name', 'display_name_alternatives', 'works_count',
-#                  'cited_by_count']]
-#         df = df.rename(
-#             columns={'id': 'author_id', 'display_name': 'author_name', 'display_name_alternatives': 'alternate_names'})
-#         ix = 'author_id'
-#
-#     elif kind == 'authorships':  # add author name and inst name for speed
-#         df = df[['work_id', 'author_id', 'author_position', 'institution_id']]
-#
-#         df.loc[:, 'work_id'] = pd.to_numeric(df.work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         df.loc[:, 'author_id'] = pd.to_numeric(df.author_id.str.replace('https://openalex.org/A', '', regex=False))
-#         df.loc[:, 'institution_id'] = pd.to_numeric(
-#             df.institution_id.str.replace('https://openalex.org/I', '', regex=False))
-#         df.loc[:, 'institution_name'] = df.institution_id.map(inst_id2name)
-#         ix = 'work_id'
-#
-#     elif kind == 'host_venues':
-#         df = df[['work_id', 'venue_id']]
-#         df.loc[:, 'work_id'] = pd.to_numeric(df.work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         df.loc[:, 'venue_id'] = pd.to_numeric(df.venue_id.str.replace('https://openalex.org/V', '', regex=False))
-#
-#         ix = 'work_id'
-#
-#     elif kind == 'concepts':
-#         df.loc[:, 'work_id'] = pd.to_numeric(df.work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         df.loc[:, 'concept_id'] = pd.to_numeric(df.concept_id.str.replace('https://openalex.org/C', '', regex=False))
-#         ix = 'work_id'
-#
-#     elif kind == 'related_works':
-#         df.loc[:, 'related_work_id'] = pd.to_numeric(
-#             df.related_work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         ix = 'work_id'
-#
-#     elif kind == 'citing_works':
-#         df.loc[:, 'work_id'] = pd.to_numeric(df.work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         df.loc[:, 'referenced_work_id'] = pd.to_numeric(
-#             df.referenced_work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         ix = 'referenced_work_id'
-#
-#     elif kind == 'referenced_works':
-#         df.loc[:, 'work_id'] = pd.to_numeric(df.work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         df.loc[:, 'referenced_work_id'] = pd.to_numeric(
-#             df.referenced_work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         ix = 'work_id'
-#
-#     else:
-#         df.loc[:, 'work_id'] = pd.to_numeric(df.work_id.str.replace('https://openalex.org/W', '', regex=False))
-#         ix = 'work_id'
-#
-#     df['part_no'] = i  # set partition number
-#     df.loc[:, 'row_group'] = range(len(df))
-#     df.loc[:, 'row_group'] = df.row_group // 250_000
-#
-#     df = df.set_index(ix).sort_index()
-#     row_group_size = min(len(df), 250_000)  # breaks rows into groups, faster filters, hopefully
-#     engine = 'pyarrow'  # if kind in ['fast', 'authors'] else 'fastparquet'
-#
-#     df.to_parquet(output_file, engine=engine, row_group_size=row_group_size)
-#     return
+
+def load_pickle(path):
+    with open(path, 'rb') as reader:
+        return pickle.load(reader)
+
+
+def dump_pickle(obj, path):
+    with open(path, 'wb') as writer:
+        pickle.dump(obj, writer)
 
 
 if __name__ == '__main__':
