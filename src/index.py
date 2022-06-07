@@ -11,12 +11,13 @@ import abc
 import io
 import os
 import subprocess
+
 import pandas as pd
 import requests
 from tqdm.auto import tqdm
 
 import src.objects as objects
-from src.utils import Paths, IDMap, reconstruct_abstract, clean_string, reconstruct_abstract_new
+from src.utils import Paths, IDMap, reconstruct_abstract, clean_string, reconstruct_abstract_new, load_pickle
 
 
 class BaseIndexer:
@@ -24,7 +25,7 @@ class BaseIndexer:
     Base class for indexers
     """
 
-    def __init__(self, paths: Paths, indices, kind: str):
+    def __init__(self, paths: Paths, indices, kind: str, fast: bool = False):
         import src.encoder as encoder
         self.paths = paths
         self.indices = indices
@@ -37,13 +38,16 @@ class BaseIndexer:
         self.data_path = self.index_path / 'data.txt'
         self.dump_path = self.index_path / 'dumps.txt'  # store the dumps of byte representations
 
-        self.offsets = self.read_offsets()
+        self.offsets = self.read_offsets(fast=fast)
 
         self.encoder = encoder.EncoderDecoder()
         self.decoder = encoder.EncoderDecoder()  # just me being lazy
 
         self.ref_indexer = None  # None except in Work Indexer class
         return
+
+    def __len__(self) -> int:
+        return len(self.offsets)
 
     def _read_offsets(self, parquet: bool = False) -> pd.DataFrame:
         """
@@ -61,13 +65,20 @@ class BaseIndexer:
         offsets_dict = df.to_dict('index')
         return offsets_dict
 
-    def read_offsets(self):
+    def read_offsets(self, fast: bool = False):
         """
         New reader that reads the offset file and create the dictionary directly
+        If fast, try reading the pickle
         """
         # how long does it take to read offsets using a file
         d = {}
         path = self.offset_path
+        if fast:
+            pickle_path = self.index_path / 'offsets.pkl'
+            if pickle_path.exists():
+                d = load_pickle(pickle_path)
+                return d
+
         num_lines = int(subprocess.check_output(f'wc -l {path}', shell=True).decode('utf-8').split()[0])
         print(f'{num_lines:,} entries in the offset')
         reader = io.StringIO(open(path).read())
@@ -80,7 +91,6 @@ class BaseIndexer:
             d[work_id] = {'offset': offset, 'len': length}
         reader.close()
         return d
-
 
     def update_index_from_dump(self):
         """
@@ -155,28 +165,17 @@ class BaseIndexer:
         """
         Use square brackets to get object using work id / concept id
         """
+        if isinstance(item, str):
+            item = int(item[1:])
         if item in self.offsets:
-            entry = self.parse_bytes(offset=self.offsets[item]['offset'])
+            try:
+                offset = self.offsets[item]['offset']
+            except TypeError:  # offsets dictionary only has
+                offset = self.offsets[item]
+            entry = self.parse_bytes(offset=offset)
 
-            ## commented for now
-            # if self.kind == 'works':  # get the references
-            #     work_id, refs, cites = self.ref_indexer[item]  # get the entry from references index
-            #     assert work_id == item, f'ID mismatch: {item} != {work_id}'
-            #
-            #     entry.references = refs
-            #     entry.citations = len(cites)
-            #     entry.citing_works = cites
         else:
-            # process the entry and write the offset
-            # print(f'Computing {self.kind!r} index for {item}')
             entry = self.process_entry(item, write=False)  # dont write to the index just yet
-
-            # if self.kind == 'works':
-            #     ## also process the references  # TODO: test
-            #     work_id, refs, cites = self.ref_indexer.process_entry(item, write=True)  # process the references
-            #     entry.references = refs
-            #     entry.citations = len(cites)
-            #     entry.citing_works = cites
         return entry
 
     @abc.abstractmethod
@@ -588,8 +587,8 @@ class NewWorkIndexer(BaseIndexer):
         #,work_id, type, DOI, title, venue_id, date, year, abstract
     """
 
-    def __init__(self, paths: Paths, indices, id_map: IDMap):
-        super().__init__(paths, indices, kind='new-works')
+    def __init__(self, paths: Paths, indices, id_map: IDMap, fast: bool = False):
+        super().__init__(paths, indices, kind='new-works', fast=fast)
         self.id_map = id_map
         # self.ref_indexer = RefIndexer(paths=self.paths, indices=self.indices)
         return
