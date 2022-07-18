@@ -29,9 +29,8 @@ class Paths:
         self.aps_parq_dir = self.basepath / 'APS' / 'new' / 'parquets'
         self.aps_csv_dir = self.basepath / 'APS' / 'new' / 'csvs'
 
-        self.scratch_dir = Path('/N/scratch/ssikdar/openalex')
+        self.scratch_dir = Path('/N/scratch/ssikdar/openalex-scratch')
         self.compressed_path = self.scratch_dir / 'compressed'
-        # self.ix_path = self.parq_dir / 'indices'
         self.ix_path = self.scratch_dir / 'indices'  # compressed index stored here
         return
 
@@ -142,7 +141,7 @@ def process_and_dump_references(work_id, ref_indexer):
     try:
         work = ref_indexer[work_id]
         bites = ref_indexer.convert_to_bytes(work)
-        # print(work_id, len(work.references), work.citations)
+        # print(work_id, len(work.references), work.cited_by_count)
         ref_indexer.dump_bytes(work_id=work_id, bites=bites)
     except Exception as e:
         print(f'Exception {e=} for {work_id=}')
