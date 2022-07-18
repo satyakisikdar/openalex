@@ -50,7 +50,7 @@ def process_json(work_json, work_indexer, id_map):
     work.title = clean_string(work_row['title'])
     work.doi = work_row['doi']
     work.type = work_row['type']
-    work.citations = work_row['cited_by_count']
+    work.cited_by_count = work_row['cited_by_count']
     work.abstract = clean_string(reconstruct_abstract(work_row['abstract_inverted_index']))
 
     # host venues
@@ -195,7 +195,7 @@ def index_concept_tagged_works(num_workers, concept_id):
 
     # index_works_parallel(work_ids=work_ids, num_workers=num_workers, work_indexer=work_indexer, ref_indexer=ref_indexer)
 
-    print(f'Now processing references and citations')
+    print(f'Now processing references and cited_by_count')
     for work_id in tqdm(work_ids, colour='red', desc='Work ID'):
         index_references_and_citations(num_workers=num_workers, work_id=work_id,
                                        work_indexer=work_indexer, ref_indexer=ref_indexer)
@@ -204,7 +204,7 @@ def index_concept_tagged_works(num_workers, concept_id):
 
 def index_references_and_citations(num_workers, work_id, work_indexer, ref_indexer):
     """
-    Index all references and citations for a work id in parallel
+    Index all references and cited_by_count for a work id in parallel
     """
     if work_id not in ref_indexer:
         process_and_dump_references(work_id=work_id, ref_indexer=ref_indexer)
