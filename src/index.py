@@ -2,7 +2,7 @@
 For all the indexing stuff
 Do it for concepts, authorships, works
 
-Works: workid, type, title, venue id, date, year, citations, references, num_authors
+Works: workid, type, title, venue id, date, year, cited_by_count, references, num_authors
 Works Authors: workid, num authors, author1, num_inst1, [inst1, inst2], author2, inst1, ...]
 Works Concepts: workid, num concepts, [concept1, score1, concept2, score2, ... ]
 Concept Works: concept_id,  num_works [work1, score1, work2, score2, ... ]
@@ -11,6 +11,7 @@ import abc
 import io
 import os
 import subprocess
+from typing import List
 
 import pandas as pd
 import requests
@@ -73,6 +74,9 @@ class BaseIndexer:
         # how long does it take to read offsets using a file
         d = {}
         path = self.offset_path
+        if not path.exists():
+            return d
+
         if fast:
             pickle_path = self.index_path / 'offsets.pkl'
             if pickle_path.exists():
@@ -107,6 +111,54 @@ class BaseIndexer:
             return
 
         reader = io.BytesIO(stuff)
+
+        id_list, bites_list = [], []  # use write indices instead of write index
+        with tqdm(total=len(stuff), miniters=1, colour='orange', desc='Updating data...',
+                  unit='B', unit_scale=True, unit_divisor=1024, leave=False) as pbar:
+            while True:
+                bite = reader.read(1)
+                if not bite:
+                    break
+
+                work_id = self.decoder.decode_long_long_int(reader)  # the # sign is already read
+                # print(f'Reading {work_id=} from dumps')
+                len_ = self.decoder.decode_long_int(reader)
+                work_bytes = reader.read(len_)  # read the bytes
+
+                if work_id not in self.offsets:
+                    # print(f'Writing new {work_id=} to offsets')
+                    id_list.append(work_id)
+                    bites_list.append(work_bytes)
+                    # self.write_index(bites=work_bytes, id_=work_id)
+                    updates += 1
+                # pbar.set_postfix(updates=updates, refresh=False)
+                pbar.update(1 + 8 + len_ + 8)
+            self.write_indices(bites_list=bites_list, id_list=id_list)
+        if updates > 0:
+            print(f'{updates:,} new entries added from dump')
+
+        # clear out the dumps file
+        writer = open(self.dump_path, 'wb')
+        writer.close()
+        reader.close()
+        return
+
+    def _update_index_from_dump(self):
+        """
+        Read the dumps.txt file and update the index
+        """
+        if not self.dump_path.exists():
+            return
+
+        updates = 0
+        with open(self.dump_path, 'rb') as reader:
+            stuff = reader.read()
+
+        if len(stuff) == 0:
+            return
+
+        reader = io.BytesIO(stuff)
+
         with tqdm(total=len(stuff), miniters=1, colour='orange', desc='Updating data...',
                   unit='B', unit_scale=True, unit_divisor=1024) as pbar:
             while True:
@@ -133,6 +185,30 @@ class BaseIndexer:
         writer = open(self.dump_path, 'wb')
         writer.close()
         reader.close()
+        return
+
+    def write_indices(self, bites_list: List[bytes], id_list: List[int]):
+        """
+        Write multiple items at once, reducing file IO
+        keep track of last offset and last len incrementally
+        """
+        if len(self.offsets) == 0:
+            previous_offset = 0
+            previous_len = 0
+        else:
+            last_key, _ = _, self.offsets[last_key] = self.offsets.popitem()
+            previous_offset, previous_len = self.offsets[last_key]['offset'], self.offsets[last_key]['len']
+
+        with open(self.offset_path, 'a') as offset_writer, open(self.data_path, 'ab') as data_writer:
+            for id_, bites in zip(id_list, bites_list):
+                offset = previous_offset + previous_len
+                self.offsets[id_] = {'offset': offset, 'len': len(bites)}
+                offset_writer.write(f'{id_},{offset},{len(bites)}\n')  # write the offset
+                data_writer.write(bites)  # write the bytes
+
+                # update the offsets and lens
+                previous_offset = offset
+                previous_len = len(bites)
         return
 
     def write_index(self, bites: bytes, id_: int):
@@ -250,7 +326,6 @@ class BaseIndexer:
 
         return
 
-
     def _validate_and_fix_index(self, fix: bool = True, start=0):
         """
         Validate the index by matching the work id / concept id from the extracted object with that of the offset file
@@ -364,8 +439,8 @@ class ConceptIndexer(BaseIndexer):
 
 class RefIndexer(BaseIndexer):
     """
-    For indexing citations and references in binary format
-    format: #work_id #refs ref1 ref2 .. #citations cite1 cite2
+    For indexing cited_by_count and references in binary format
+    format: #work_id #refs ref1 ref2 .. #cited_by_count cite1 cite2
     """
 
     def __init__(self, paths: Paths, indices):
@@ -387,7 +462,7 @@ class RefIndexer(BaseIndexer):
             self.encoder.encode_long_long_int(lli=ref_w) for ref_w in work.references
         )
 
-        # add citations
+        # add cited_by_count
         bites.append(
             self.encoder.encode_long_int(li=len(work.citing_works))
         )
@@ -585,6 +660,9 @@ class NewWorkIndexer(BaseIndexer):
     """
         Write work information into a binary file
         #,work_id, type, DOI, title, venue_id, date, year, abstract
+
+        TODO: improve parse_bytes by pre-loading some of the binary file in memory. load up lengths of objects
+        TODO: alongside offsets. Load up 100k entries in memory
     """
 
     def __init__(self, paths: Paths, indices, id_map: IDMap, fast: bool = False):
@@ -608,7 +686,6 @@ class NewWorkIndexer(BaseIndexer):
     def convert_to_bytes(self, work) -> bytes:
         bites = [
             self.encoder.encode_id(id_=work.work_id),
-            self.encoder.encode_int(i=work.part_no),
             self.encoder.encode_work_type(typ=work.type)
         ]
 
@@ -623,12 +700,8 @@ class NewWorkIndexer(BaseIndexer):
 
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
+
         abstract = work.abstract
-        # abstract = reconstruct_abstract(work.abstract_inverted_index)  # abstract
-        # if abstract == '':
-        #     abstract = reconstruct_abstract_new(work.abstract_inverted_index)  # abstract
-        # if abstract != '':
-        #     print(f'{abstract=!r}')
         bites.append(self.encoder.encode_string(abstract))
 
         # add author info
@@ -645,6 +718,9 @@ class NewWorkIndexer(BaseIndexer):
             self.encoder.encode_concept(concept=concept) for concept in work.concepts
         ])
 
+        # cited by count
+        bites.append(self.encoder.encode_int(work.cited_by_count))
+
         # add references
         bites.append(self.encoder.encode_long_int(li=len(work.references)))  # number of references
         bites.extend(
@@ -656,6 +732,9 @@ class NewWorkIndexer(BaseIndexer):
         bites.extend(
             self.encoder.encode_long_long_int(lli=rel_w) for rel_w in work.related_works
         )
+
+        # updated date
+        bites.append(self.encoder.encode_string(work.updated_date))
         return b''.join(bites)
 
     def dump_bytes(self, work_id: int, bites: bytes):
@@ -679,9 +758,6 @@ class NewWorkIndexer(BaseIndexer):
 
         work_id = self.decoder.decode_id(reader)
         # print(f'{work_id=}')
-
-        part_no = self.decoder.decode_int(reader)
-        # print(f'{part_no=}')
 
         work_type = self.decoder.decode_work_type(reader)
         # print(f'{work_type=}')
@@ -716,6 +792,9 @@ class NewWorkIndexer(BaseIndexer):
 
         concepts = [self.decoder.decode_concept(reader) for _ in range(num_concepts)]
 
+        # cited by count
+        cited_by_count = self.decoder.decode_int(reader)
+
         num_refs = self.decoder.decode_long_int(reader)
         # print(f'{num_refs=}')
 
@@ -726,11 +805,13 @@ class NewWorkIndexer(BaseIndexer):
 
         related_works = {self.decoder.decode_long_long_int(reader) for _ in range(num_related_works)}
 
+        updated_date = self.decoder.decode_string(reader)
         reader.close()
 
-        work = objects.Work(work_id=work_id, part_no=part_no, type=work_type, doi=doi, title=title,
+        work = objects.Work(work_id=work_id, cited_by_count=cited_by_count, type=work_type, doi=doi, title=title,
                             publication_year=year, references=references, related_works=related_works,
-                            publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts)
+                            publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts,
+                            updated_date=updated_date)
 
         return work
 
