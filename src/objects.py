@@ -39,7 +39,8 @@ def process_json(work_json, work_indexer, id_map):
     work.title = clean_string(work_row['title'])
     work.doi = work_row['doi']
     work.type = work_row['type']
-    work.citations = work_row['cited_by_count']
+    work.cited_by_count = work_row['cited_by_count']
+    work.updated_date = work_row['updated_date']
 
     try:
         if (abstract := work_json.get('abstract_inverted_index')) is not None:
@@ -343,18 +344,18 @@ class Work:
     partitions_dict: dict = field(default_factory=lambda: {}, repr=False)  # partition indices
 
     url: Optional[str] = field(default=None, repr=False)
-    part_no: Optional[int] = None
     type: Optional[str] = None
     doi: Optional[str] = None
     title: Optional[str] = None
     publication_year: Optional[int] = None
     publication_date: Optional[str] = None
+    updated_date: Optional[str] = None
     venue: Optional[Venue] = field(default=None, repr=False)
     abstract: Optional[str] = field(default=None, repr=False)
     abstract_inverted_index: Optional[str] = field(default=None, repr=False)
     authors: List[Author] = field(default_factory=lambda: [], repr=False)
     concepts: List[Concept] = field(default_factory=lambda: [], repr=False)
-    citations: int = None  # number of citations
+    cited_by_count: int = None  # number of cited_by_count
     references: set = field(default_factory=lambda: set(), repr=False)  # set of references works
     citing_works: set = field(default=None, repr=False)  # set of citing works
     cocited_works: set = field(default=None, repr=False)  # set of co-cited works
@@ -363,7 +364,7 @@ class Work:
     def __post_init__(self):
         self.url = f'https://openalex.org/W{self.work_id}'
         if self.citing_works is not None:
-            self.citations = len(self.citing_works)
+            self.cited_by_count = len(self.citing_works)
         ## TODO: replace populate_info with an API call?
         return
 
@@ -401,7 +402,7 @@ class Work:
                         continue
                     setattr(self, att, getattr(w, att))
 
-        # try to load the references and citations
+        # try to load the references and cited_by_count
         if ref_indexer is not None:
             # ref_indexer.read_offsets()
             ref_offset = ref_indexer.offsets.get(self.work_id, {}).get('offset')
@@ -416,7 +417,7 @@ class Work:
                 assert work_id == self.work_id, f'Work ids in index does not match'
 
                 self.references = refs
-                self.citations = len(cites)
+                self.cited_by_count = len(cites)
                 self.citing_works = cites
 
         return
@@ -536,7 +537,7 @@ class Work:
 
         part_no = self.get_partition_info(kind=kind, indices=indices)
         if part_no is None:
-            self.citations = 0
+            self.cited_by_count = 0
             self.citing_works = set()
             return
 
@@ -544,7 +545,7 @@ class Work:
                               paths=self.paths)
 
         self.citing_works = set(cites_rows.work_id)
-        self.citations = len(self.citing_works)
+        self.cited_by_count = len(self.citing_works)
         return
 
     def populate_references(self, indices: ParquetIndices):
