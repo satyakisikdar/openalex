@@ -816,7 +816,7 @@ class NewWorkIndexer(BaseIndexer):
 
         work = objects.Work(work_id=work_id, cited_by_count=cited_by_count, type=work_type, doi=doi, title=title,
                             publication_year=year, references=references, related_works=related_works,
-                            publication_date=date, venue=venue, abstract=abstract, authors=authors, concepts=concepts,
+                            publication_date=date, venue=venue, authors=authors, concepts=concepts,
                             updated_date=updated_date)
 
         return work
