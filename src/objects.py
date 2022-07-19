@@ -4,7 +4,7 @@ Containers for different entities
 
 # TODO: add progress bars to all the stuff, optimize for credit allocation - cocited graphs
 # TODO: re-create author institution timeline
-
+import csv
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -105,6 +105,86 @@ def process_json(work_json, work_indexer, id_map):
         if related_work:
             work.related_works.add(convert_openalex_id_to_int(related_work))
     return work
+
+
+def write_works_csvs(works, paths):
+    """
+    Unflatten a list of works into multiple CSVs
+    works_authorships, works_host_venues, works_concepts, works_referenced_works, works_related_works
+    """
+    csvs_path = paths.scratch_dir / 'csvs'
+    cols_dict = {
+        'works': 'work_id,type,doi,title,year,date,cited_by_count,venue_id,venue_name,updated_date',
+        'authorships': 'work_id,year,author_position,author_id,author_name,inst_id,inst_name',
+        'host_venues': 'work_id,year,venue_id,venue_name',
+        'concepts': 'work_id,year,concept_id,concept_name,level,score',
+        'referenced_works': 'work_id,referenced_work_id',
+        'related_works': 'work_id,related_work_id',
+        'abstracts': 'work_id,year,title,abstract'
+    }
+
+    for kind in tqdm(cols_dict, desc='writing CSVs', leave=False):
+        csv_path = csvs_path / f'works_{kind}.csv'
+        if not csv_path.exists():
+            with open(csv_path, 'w') as writer:
+                writer.write(cols_dict[kind] + '\n')
+
+        with open(csv_path, 'a') as writer:
+            csv_writer = csv.DictWriter(writer, extrasaction='ignore',
+                                        fieldnames=cols_dict[kind].split(','))
+            for work in works:
+                if kind == 'works':
+                    venue_id = work.venue.venue_id if work.venue is not None else None
+                    venue_name = work.venue.name if work.venue is not None else None
+                    row = dict(work_id=work.work_id, type=work.type, doi=work.doi, title=work.title,
+                               year=work.publication_year,
+                               date=work.publication_date, cited_by_count=work.cited_by_count,
+                               venue_name=venue_name, venue_id=venue_id, updated_date=work.updated_date)
+                    csv_writer.writerow(row)
+
+                elif kind == 'abstracts':
+                    row = dict(work_id=work.work_id, year=work.publication_year, title=work.title,
+                               abstract=work.abstract)
+                    csv_writer.writerow(row)
+
+                elif kind == 'authorships':
+                    for author in work.authors:
+                        for inst in author.insts:
+                            if inst is None:
+                                inst_name, inst_id = None, None
+                            else:
+                                inst_name, inst_id = inst.name, inst.institution_id
+
+                            row = dict(work_id=work.work_id, year=work.publication_year,
+                                       author_name=author.name, author_id=author.author_id,
+                                       author_position=author.position,
+                                       inst_id=inst_id, inst_name=inst_name)
+                            csv_writer.writerow(row)
+
+                elif kind == 'host_venues':
+                    venue_id = work.venue.venue_id if work.venue is not None else None
+                    venue_name = work.venue.name if work.venue is not None else None
+                    row = dict(work_id=work.work_id, year=work.publication_year, venue_id=venue_id,
+                               venue_name=venue_name)
+                    csv_writer.writerow(row)
+
+                elif kind == 'concepts':
+                    for concept in work.concepts:
+                        row = dict(work_id=work.work_id, year=work.publication_year,
+                                   concept_name=concept.name, concept_id=concept.concept_id,
+                                   level=concept.level, score=concept.score)
+                        csv_writer.writerow(row)
+
+                elif kind == 'referenced_works':
+                    for ref in work.references:
+                        row = dict(work_id=work.work_id, referenced_work_id=ref)
+                        csv_writer.writerow(row)
+
+                elif kind == 'related_works':
+                    for rel in work.related_works:
+                        row = dict(work_id=work.work_id, related_work_id=rel)
+                        csv_writer.writerow(row)
+    return
 
 
 @dataclass
