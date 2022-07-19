@@ -75,6 +75,8 @@ class BaseIndexer:
         d = {}
         path = self.offset_path
         if not path.exists():
+            with open(path, 'w') as writer:
+                writer.write('work_id,offset,len\n')
             return d
 
         if fast:
@@ -84,7 +86,10 @@ class BaseIndexer:
                 return d
 
         num_lines = int(subprocess.check_output(f'wc -l {path}', shell=True).decode('utf-8').split()[0])
-        print(f'{num_lines:,} entries in the offset')
+        if num_lines == 0:  # empty or just the header
+            with open(path, 'w') as writer:
+                writer.write('work_id,offset,len\n')
+        print(f'{num_lines - 1:,} entries in the offset')
         reader = io.StringIO(open(path).read())
 
         for i, line in enumerate(tqdm(reader, total=num_lines, unit_scale=True, unit=' works',
@@ -701,8 +706,8 @@ class NewWorkIndexer(BaseIndexer):
             self.encoder.encode_venue(venue=work.venue),  # venue
         ])
 
-        abstract = work.abstract
-        bites.append(self.encoder.encode_string(abstract))
+        # abstract = work.abstract
+        # bites.append(self.encoder.encode_string(abstract))
 
         # add author info
         bites.append(self.encoder.encode_int(i=len(work.authors)))  # number of authors
@@ -735,6 +740,7 @@ class NewWorkIndexer(BaseIndexer):
 
         # updated date
         bites.append(self.encoder.encode_string(work.updated_date))
+
         return b''.join(bites)
 
     def dump_bytes(self, work_id: int, bites: bytes):
@@ -779,7 +785,7 @@ class NewWorkIndexer(BaseIndexer):
         venue = self.decoder.decode_venue(reader)
         # print(f'{venue=}')
 
-        abstract = self.decoder.decode_string(reader)
+        # abstract = self.decoder.decode_string(reader)
         # print(f'{abstract=}')
 
         num_authors = self.decoder.decode_int(reader)
