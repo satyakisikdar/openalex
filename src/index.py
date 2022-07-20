@@ -101,12 +101,16 @@ class BaseIndexer:
         reader.close()
         return d
 
-    def update_index_from_dump(self):
+    def update_index_from_dump(self, update_csv: bool = False):
         """
         Read the dumps.txt file and update the index
+        and update the CSVs if the flags are passed
         """
         if not self.dump_path.exists():
             return
+
+        if update_csv:
+            works_list = []
 
         updates = 0
         with open(self.dump_path, 'rb') as reader:
@@ -115,11 +119,11 @@ class BaseIndexer:
         if len(stuff) == 0:
             return
 
-        reader = io.BytesIO(stuff)
-
         id_list, bites_list = [], []  # use write indices instead of write index
         with tqdm(total=len(stuff), miniters=1, colour='orange', desc='Updating data...',
                   unit='B', unit_scale=True, unit_divisor=1024, leave=False) as pbar:
+
+            reader = io.BytesIO(stuff)
             while True:
                 bite = reader.read(1)
                 if not bite:
@@ -133,12 +137,20 @@ class BaseIndexer:
                 if work_id not in self.offsets:
                     # print(f'Writing new {work_id=} to offsets')
                     id_list.append(work_id)
+                    if update_csv:
+                        reader2 = io.BytesIO(work_bytes)
+                        works_list.append(self.parse_bytes(offset=0, reader=reader2))
+
                     bites_list.append(work_bytes)
                     # self.write_index(bites=work_bytes, id_=work_id)
                     updates += 1
                 # pbar.set_postfix(updates=updates, refresh=False)
                 pbar.update(1 + 8 + len_ + 8)
             self.write_indices(bites_list=bites_list, id_list=id_list)
+
+            if update_csv:
+                objects.write_works_csvs(works=works_list, paths=self.paths)
+
         if updates > 0:
             print(f'{updates:,} new entries added from dump')
 
