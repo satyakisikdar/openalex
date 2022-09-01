@@ -5,11 +5,12 @@ Original script at https://gist.github.com/richard-orr/152d828356a7c47ed7e3e22d2
 import csv
 import glob
 import gzip
+import json
 import os
 import sys
 from pathlib import Path
 
-import orjson as json  # faster JSON library
+import orjson  # faster JSON library
 from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
@@ -257,8 +258,8 @@ def flatten_concepts():
                     if concept_ids := concept.get('ids'):
                         concept_ids['concept_id'] = concept_id
                         concept_ids['concept_name'] = concept_name
-                        concept_ids['umls_aui'] = concept_ids.get('umls_aui')
-                        concept_ids['umls_cui'] = concept_ids.get('umls_cui')
+                        concept_ids['umls_aui'] = json.dumps(concept_ids.get('umls_aui'))
+                        concept_ids['umls_cui'] = json.dumps(concept_ids.get('umls_cui'))
                         ids_writer.writerow(concept_ids)
 
                     if ancestors := concept.get('ancestors'):
@@ -305,19 +306,22 @@ def flatten_venues():
 
         seen_venue_ids = set()
 
-        files_done = 0
-        for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'venues', '*', '*.gz')):
-            print(jsonl_file_name)
+        files = list(glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'venues', '*', '*.gz')))
+        for jsonl_file_name in tqdm(files, desc='Flattening venues...', unit=' file'):
+
             with gzip.open(jsonl_file_name, 'r') as venues_jsonl:
                 for venue_json in venues_jsonl:
                     if not venue_json.strip():
                         continue
 
-                    venue = json.loads(venue_json)
+                    venue = orjson.loads(venue_json)
 
                     if not (venue_id := venue.get('id')) or venue_id in seen_venue_ids:
                         continue
 
+                    venue_id = convert_openalex_id_to_int(venue_id)
+                    venue_name = venue['display_name']
+                    venue['venue_name'] = venue_name
                     seen_venue_ids.add(venue_id)
 
                     venue['issn'] = json.dumps(venue.get('issn'))
@@ -325,12 +329,14 @@ def flatten_venues():
 
                     if venue_ids := venue.get('ids'):
                         venue_ids['venue_id'] = venue_id
+                        venue_ids['venue_name'] = venue_name
                         venue_ids['issn'] = json.dumps(venue_ids.get('issn'))
                         ids_writer.writerow(venue_ids)
 
                     if counts_by_year := venue.get('counts_by_year'):
                         for count_by_year in counts_by_year:
                             count_by_year['venue_id'] = venue_id
+                            count_by_year['venue_name'] = venue_name
                             counts_by_year_writer.writerow(count_by_year)
 
     return
@@ -367,22 +373,25 @@ def flatten_institutions():
 
         seen_institution_ids = set()
 
-        files_done = 0
-        for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'institutions', '*', '*.gz')):
-            print(jsonl_file_name)
+        files = list(glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'institutions', '*', '*.gz')))
+        for jsonl_file_name in tqdm(files, desc='Flattening Institutions...'):
             with gzip.open(jsonl_file_name, 'r') as institutions_jsonl:
                 for institution_json in institutions_jsonl:
                     if not institution_json.strip():
                         continue
 
-                    institution = json.loads(institution_json)
+                    institution = orjson.loads(institution_json)
 
                     if not (institution_id := institution.get('id')) or institution_id in seen_institution_ids:
                         continue
 
+                    institution_id = convert_openalex_id_to_int(institution_id)
+                    institution_name = institution['display_name']
                     seen_institution_ids.add(institution_id)
 
                     # institutions
+                    institution['institution_id'] = institution_id
+                    institution['institution_name'] = institution_name
                     institution['display_name_acroynyms'] = json.dumps(institution.get('display_name_acroynyms'))
                     institution['display_name_alternatives'] = json.dumps(institution.get('display_name_alternatives'))
                     institutions_writer.writerow(institution)
@@ -390,11 +399,13 @@ def flatten_institutions():
                     # ids
                     if institution_ids := institution.get('ids'):
                         institution_ids['institution_id'] = institution_id
+                        institution_ids['institution_name'] = institution_name
                         ids_writer.writerow(institution_ids)
 
                     # geo
                     if institution_geo := institution.get('geo'):
                         institution_geo['institution_id'] = institution_id
+                        institution_geo['institution_name'] = institution_name
                         geo_writer.writerow(institution_geo)
 
                     # associated_institutions
@@ -413,9 +424,8 @@ def flatten_institutions():
                     if counts_by_year := institution.get('counts_by_year'):
                         for count_by_year in counts_by_year:
                             count_by_year['institution_id'] = institution_id
+                            count_by_year['institution_name'] = institution_name
                             counts_by_year_writer.writerow(count_by_year)
-
-            files_done += 1
     return
 
 
@@ -616,8 +626,8 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
 
 
 if __name__ == '__main__':
-    flatten_concepts()  # takes about 30s
-    # flatten_venues()
-    # flatten_institutions()
+    # flatten_concepts()  # takes about 30s
+    # flatten_venues()  # takes about 20s
+    flatten_institutions()  # takes about 20s
     # flatten_authors()
     # flatten_works()
