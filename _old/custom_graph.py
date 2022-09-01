@@ -2,7 +2,7 @@ import igraph as ig
 
 DESCRIPTIONS = {
     'cite_ref':
-        'Directed graph linking works with references (out) and citations (in)',
+        'Directed graph linking works with references (out) and cited_by_count (in)',
     'related':
         'Directed graph linking a work with related works.',
     'concept':
@@ -20,22 +20,17 @@ class CustomGraph(ig.Graph):
     overloads add_vertex to be more forgiving: add new node if it's not present
     """
 
-    def __init__(self, kind: str, *args, **kwds):
-        super().__init__(*args, **kwds)
+    def __init__(self, kind: str = '', *args, **kwds):
         self.kind = kind
-        self.description = DESCRIPTIONS[kind]
+        self.vertex_names = set()  # this is to speedup name lookups
+        super().__init__(*args, **kwds)
         return
 
     def has_vertex(self, name: str) -> bool:
         """
         returns True if node with the name exists, else return False
         """
-        try:
-            self.vs.find(name)
-            present = True
-        except (ValueError, KeyError):
-            present = False
-        return present
+        return name in self.vertex_names
 
     def add_vertex(self, name=None, **kwds):
         """
@@ -45,11 +40,31 @@ class CustomGraph(ig.Graph):
             # print(f'Existing vertex {name!r} found')
             return
         else:
+            self.vertex_names.add(name)
             return super().add_vertex(name=name, **kwds)
 
     def __str__(self) -> str:
-        st = f'Name: {self.kind!r} {self.summary()}\nDescription: {self.description!r}'
+        description = DESCRIPTIONS.get(self.kind, '')
+        st = f'Name: {self.kind!r} {self.summary()}\nDescription: {description!r}'
         return st
+
+    def Read_Pickle(self, fname=None):
+        g = super().Read_Pickle(fname)
+        g.vertex_names = set(g.vs['name'])
+        g.kind = self.kind
+        return g
+
+    def Read_GraphMLz(self, f, index=0):
+        g = super().Read_GraphMLz(f)
+        g.vertex_names = set(g.vs['name'])
+        g.kind = self.kind
+        return g
+
+    def Read_GraphML(self, f, index=0):
+        g = super().Read_GraphML(f)
+        g.vertex_names = set(g.vs['name'])
+        g.kind = self.kind
+        return g
 
     def neighbors(self, *args, **kwargs):
         """
