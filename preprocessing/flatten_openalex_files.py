@@ -14,7 +14,7 @@ import orjson  # faster JSON library
 from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
-from src.utils import convert_openalex_id_to_int
+from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle
 
 basedir = Path('/N/project/openalex/ssikdar')
 SNAPSHOT_DIR = basedir / 'openalex-snapshot'
@@ -432,50 +432,84 @@ def flatten_institutions():
 def flatten_authors():
     file_spec = csv_files['authors']
 
-    with gzip.open(file_spec['authors']['name'], 'wt', encoding='utf-8') as authors_csv, \
-            gzip.open(file_spec['ids']['name'], 'wt', encoding='utf-8') as ids_csv, \
-            gzip.open(file_spec['counts_by_year']['name'], 'wt', encoding='utf-8') as counts_by_year_csv:
+    authors_csv_exists = Path(file_spec['authors']['name']).exists()
+    ids_csv_exists = Path(file_spec['ids']['name']).exists()
+    counts_by_year_csv_exists = Path(file_spec['counts_by_year']['name']).exists()
+
+    with gzip.open(file_spec['authors']['name'], 'at', encoding='utf-8') as authors_csv, \
+            gzip.open(file_spec['ids']['name'], 'at', encoding='utf-8') as ids_csv, \
+            gzip.open(file_spec['counts_by_year']['name'], 'at', encoding='utf-8') as counts_by_year_csv:
 
         authors_writer = csv.DictWriter(
             authors_csv, fieldnames=file_spec['authors']['columns'], extrasaction='ignore'
         )
-        authors_writer.writeheader()
+        if not authors_csv_exists:
+            authors_writer.writeheader()
 
         ids_writer = csv.DictWriter(ids_csv, fieldnames=file_spec['ids']['columns'])
-        ids_writer.writeheader()
+        if not ids_csv_exists:
+            ids_writer.writeheader()
 
         counts_by_year_writer = csv.DictWriter(counts_by_year_csv, fieldnames=file_spec['counts_by_year']['columns'])
-        counts_by_year_writer.writeheader()
+        if not counts_by_year_csv_exists:
+            counts_by_year_writer.writeheader()
 
-        files_done = 0
-        for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')):
-            print(jsonl_file_name)
+        print(f'This might take a while, like 6-7 hours..')
+
+        finished_files_pickle_path = CSV_DIR / 'temp' / 'finished_authors.pkl'
+        finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
+
+        if finished_files_pickle_path.exists():
+            finished_files = load_pickle(finished_files_pickle_path)  # load the pickle
+            print(f'{len(finished_files)} existing files found!')
+        else:
+            finished_files = set()
+
+        files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
+        files = [f for f in files if f not in finished_files]
+
+        for jsonl_file_name in tqdm(files, desc='Flattening authors...', unit=' file'):
             with gzip.open(jsonl_file_name, 'r') as authors_jsonl:
-                for author_json in authors_jsonl:
-                    if not author_json.strip():
-                        continue
+                authors_jsonls = authors_jsonl.readlines()
 
-                    author = json.loads(author_json)
+            for author_json in tqdm(authors_jsonls, desc='Parsing JSONs', leave=False, unit=' line', unit_scale=True):
+                if not author_json.strip():
+                    continue
 
-                    if not (author_id := author.get('id')):
-                        continue
+                author = orjson.loads(author_json)
 
-                    # authors
-                    author['display_name_alternatives'] = json.dumps(author.get('display_name_alternatives'))
-                    author['last_known_institution'] = (author.get('last_known_institution') or {}).get('id')
-                    authors_writer.writerow(author)
+                if not (author_id := author.get('id')):
+                    continue
+                author_id = convert_openalex_id_to_int(author_id)
+                author_name = author['display_name']
 
-                    # ids
-                    if author_ids := author.get('ids'):
-                        author_ids['author_id'] = author_id
-                        ids_writer.writerow(author_ids)
+                # authors
+                author['author_id'] = author_id
+                author['author_name'] = author_name
+                author['display_name_alternatives'] = json.dumps(author.get('display_name_alternatives'))
+                last_known_institution = (author.get('last_known_institution') or {}).get('id')
+                if last_known_institution is not None:
+                    last_known_institution = convert_openalex_id_to_int(last_known_institution)
+                author['last_known_institution'] = last_known_institution
 
-                    # counts_by_year
-                    if counts_by_year := author.get('counts_by_year'):
-                        for count_by_year in counts_by_year:
-                            count_by_year['author_id'] = author_id
-                            counts_by_year_writer.writerow(count_by_year)
-            files_done += 1
+                authors_writer.writerow(author)
+
+                # ids
+                if author_ids := author.get('ids'):
+                    author_ids['author_id'] = author_id
+                    author_ids['author_name'] = author_name
+                    ids_writer.writerow(author_ids)
+
+                # counts_by_year
+                if counts_by_year := author.get('counts_by_year'):
+                    for count_by_year in counts_by_year:
+                        count_by_year['author_id'] = author_id
+                        count_by_year['author_name'] = author_name
+                        counts_by_year_writer.writerow(count_by_year)
+
+            finished_files.add(str(jsonl_file_name))
+            dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+            break
     return
 
 
@@ -506,21 +540,36 @@ def flatten_works():
         referenced_works_writer = init_dict_writer(referenced_works_csv, file_spec['referenced_works'])
         related_works_writer = init_dict_writer(related_works_csv, file_spec['related_works'])
 
-        files_done = 0
-        for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'works', '*', '*.gz')):
-            print(jsonl_file_name)
+        finished_files_pickle_path = CSV_DIR / 'temp' / 'finished_works.pkl'
+        finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
+
+        if finished_files_pickle_path.exists():
+            finished_files = load_pickle(finished_files_pickle_path)  # load the pickle
+            print(f'{len(finished_files)} existing files found!')
+        else:
+            finished_files = set()
+
+        files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'works', '*', '*.gz')))
+        files = [f for f in files if f not in finished_files]
+
+        print(f'This might take a while, like 6-7 hours..')
+
+        for jsonl_file_name in tqdm(files, desc='Flattening works...', unit=' file'):
             with gzip.open(jsonl_file_name, 'r') as works_jsonl:
-                for work_json in works_jsonl:
-                    if not work_json.strip():
-                        continue
+                works_jsonls = works_jsonl.readlines()
 
-                    work = json.loads(work_json)
+            for work_json in tqdm(works_jsonls, desc='Parsing JSONs', leave=False, unit=' line',
+                                  unit_scale=True):
+                if not work_json.strip():
+                    continue
 
-                    if not (work_id := work.get('id')):
-                        continue
+                work = orjson.loads(work_json)
 
-                    # works
-                    if (abstract := work.get('abstract_inverted_index')) is not None:
+                if not (work_id := work.get('id')):
+                    continue
+
+                # works
+                if (abstract := work.get('abstract_inverted_index')) is not None:
                         work['abstract_inverted_index'] = json.dumps(abstract)
 
                     works_writer.writerow(work)
@@ -613,7 +662,6 @@ def flatten_works():
                                 'related_work_id': related_work
                             })
 
-            files_done += 1
     return
 
 
@@ -621,13 +669,15 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
     writer = csv.DictWriter(
         csv_file, fieldnames=file_spec['columns'], **kwargs
     )
-    writer.writeheader()
+
+    if not Path(csv_file).exists():  # write header only if file is empty
+        writer.writeheader()
     return writer
 
 
 if __name__ == '__main__':
-    # flatten_concepts()  # takes about 30s
-    # flatten_venues()  # takes about 20s
-    flatten_institutions()  # takes about 20s
-    # flatten_authors()
-    # flatten_works()
+    #     # flatten_concepts()  # takes about 30s
+    #     # flatten_venues()  # takes about 20s
+    #     flatten_institutions()  # takes about 20s
+    flatten_authors()
+#     # flatten_works()
