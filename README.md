@@ -3,7 +3,7 @@
 Updated: Sep 1, 2022
 
 ## Preprocessing
-
+0. Create the `sci-sci` conda environment from `environment.yml`.
 1. Download the OpenAlex snapshots from [this](https://docs.openalex.org/download-snapshot/download-to-your-machine)
    link to a directory of your choosing (say, `basedir`).
 2. Open `preprocessing/flatten_openalex_files.py` and update the `BASEDIR` variable to the above directory.
