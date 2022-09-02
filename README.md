@@ -13,4 +13,8 @@ Updated: Sep 1, 2022
 
 * flattening _authors_ and _works_ take anywhere between 15 and 30 hours. The code will cache the files, so you
   should consider running it in batches by setting the `files_to_process` variable.
-* There will be repeated rows in the CSVs if the code stops during the parsing process. Workaround TBD. 
+* There will be repeated rows in the CSVs if the code stops during the parsing process. Workaround TBD.
+
+### Coming Soon
+
+* Filtering CSVs based on concepts, publication years, and venues 
