@@ -26,8 +26,12 @@ class Paths:
 def convert_openalex_id_to_int(openalex_id):
     if not openalex_id:
         return None
-    openalex_id = openalex_id.strip().replace('https://openalex.org/', '')
-    return int(openalex_id[1:])
+    try:
+        openalex_id = openalex_id.strip().replace('https://openalex.org/', '')
+        id_ = int(openalex_id[1:])
+    except Exception:
+        id_ = None
+    return id_
 
 
 def get_concept_id(name) -> int:
@@ -166,7 +170,7 @@ def construct_abstracts(inv_abstracts):
     return abstracts
 
 
-def reconstruct_abstract_new(inv_abstract_st):
+def reconstruct_abstract(inv_abstract_st):
     if inv_abstract_st is None:
         return ''
 
@@ -176,26 +180,6 @@ def reconstruct_abstract_new(inv_abstract_st):
 
     inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
     abstract_dict = {}
-    for word, locs in inv_abstract.items():  # invert the inversion
-        for loc in locs:
-            abstract_dict[loc] = word
-    abstract = ' '.join(map(lambda x: x[1],  # pick the words
-                            sorted(abstract_dict.items())))  # sort abstract dictionary by indices
-    if len(abstract) == 0:
-        abstract = ''
-    return abstract
-
-
-def reconstruct_abstract(inv_abstract_st):
-    if inv_abstract_st is None:
-        return ''
-    inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
-    if isinstance(inv_abstract_st, bytes):
-        inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
-
-    inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
-    abstract_dict = {}
-    # print(f'{type(inv_abstract)=}')
     for word, locs in inv_abstract.items():  # invert the inversion
         for loc in locs:
             abstract_dict[loc] = word
