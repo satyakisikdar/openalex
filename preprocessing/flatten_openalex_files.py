@@ -469,6 +469,7 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
 
         if files_to_process == 'all':
             files_to_process = len(files)
+        print(f'{files_to_process=}')
 
         for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening authors...', unit=' file', total=len(files)):
             if i > files_to_process:
@@ -514,7 +515,7 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
-            break
+
     return
 
 
@@ -563,6 +564,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
 
         if files_to_process == 'all':
             files_to_process = len(files)
+        print(f'{files_to_process=}')
 
         for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=len(files),
                                        unit=' file'):
@@ -711,7 +713,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
-            break
+
     return
 
 
@@ -730,8 +732,8 @@ if __name__ == '__main__':
     #     # flatten_venues()  # takes about 20s
     #     flatten_institutions()  # takes about 20s
 
-    # files_to_process = 'all'  # to do everything
-    files_to_process = 2  # or any other number
+    files_to_process = 'all'  # to do everything
+    # files_to_process = 2  # or any other number
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
