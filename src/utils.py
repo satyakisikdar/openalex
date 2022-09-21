@@ -89,8 +89,8 @@ def clean_string(s: str) -> str:
 
 
 # Read file list from MANIFEST
-def read_manifest(kind: str, paths: Paths) -> Box:
-    manifest_path = paths.snapshot_dir / kind / 'manifest'
+def read_manifest(kind: str, snapshot_dir) -> Box:
+    manifest_path = snapshot_dir / kind / 'manifest'
     create_date = datetime.fromtimestamp(manifest_path.stat().st_ctime).strftime("%a, %b %d %Y")
 
     raw_data = Box(json.load(open(manifest_path)))
@@ -100,7 +100,7 @@ def read_manifest(kind: str, paths: Paths) -> Box:
 
     entries = []
     for raw_entry in raw_data.entries:
-        filename = paths.snapshot_dir / raw_entry.url.replace('s3://openalex/data/', '')
+        filename = snapshot_dir / raw_entry.url.replace('s3://openalex/data/', '')
         entry = Box({'filename': filename, 'kind': kind,
                      'count': raw_entry.meta.record_count,
                      'updated_date': '_'.join(filename.parts[-2:]).replace('.gz', '')})

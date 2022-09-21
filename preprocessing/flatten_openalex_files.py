@@ -15,7 +15,7 @@ import orjson  # faster JSON library
 from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
-from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract
+from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
@@ -464,7 +464,9 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
         else:
             finished_files = set()
 
-        files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
+        authors_manifest = read_manifest(kind='authors', snapshot_dir=SNAPSHOT_DIR / 'data')
+        files = [entry.filename for entry in authors_manifest.entries]
+        # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
         files = [f for f in files if f not in finished_files]
 
         if files_to_process == 'all':
@@ -557,7 +559,9 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
         else:
             finished_files = set()
 
-        files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'works', '*', '*.gz')))
+        works_manifest = read_manifest(kind='works', snapshot_dir=SNAPSHOT_DIR / 'data')
+        files = [entry.filename for entry in works_manifest.entries]
+        # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'works', '*', '*.gz')))
         files = [f for f in files if f not in finished_files]
 
         print(f'This might take a while, like 20 hours..')
