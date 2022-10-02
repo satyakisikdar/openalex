@@ -103,7 +103,7 @@ def write_other_filtered_tables(csv_path, parq_path, work_ids):
         'authorships': dict(
             work_id='Int64', author_position='category', author_id='Int64', author_name='string',
             institution_id='Int64', institution_name='string', raw_affiliation_string='string',
-            publication_year='uint32'),
+            publication_year='Int64'),
         'host_venues': dict(
             work_id='Int64', venue_id='Int64', venue_name='string', url='string', is_oa=float, version='string',
             license='string'
@@ -112,7 +112,7 @@ def write_other_filtered_tables(csv_path, parq_path, work_ids):
             work_id='Int64', referenced_work_id='Int64'
         ),
         'concepts': dict(
-            work_id='Int64', publication_year='unint32', concept_id='Int64', concept_name='category', level='uint8',
+            work_id='Int64', publication_year='Int64', concept_id='Int64', concept_name='category', level='uint8',
             score=float
         )
     }
