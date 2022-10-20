@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Union
 
 import orjson  # faster JSON library
+import pandas as pd
 from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
@@ -19,19 +20,24 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-CSV_DIR = BASEDIR / 'csv-files-new'
+CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / 'oct-2022'
 
-csv_files = {
-    'institutions': {
+# TODO: save the partially completed work/author IDs to a pickle while processing a file
+# TODO: skip over those IDs on the re-run to prevent repeats
+
+csv_files = \
+    {
         'institutions': {
-            'name': os.path.join(CSV_DIR, 'institutions.csv.gz'),
-            'columns': [
-                'institution_id', 'institution_name', 'ror', 'country_code', 'type', 'homepage_url',
-                'display_name_acroynyms', 'display_name_alternatives', 'works_count', 'cited_by_count', 'updated_date'
-            ]
-        },
-        'ids': {
-            'name': os.path.join(CSV_DIR, 'institutions_ids.csv.gz'),
+            'institutions': {
+                'name': os.path.join(CSV_DIR, 'institutions.csv.gz'),
+                'columns': [
+                    'institution_id', 'institution_name', 'ror', 'country_code', 'type', 'homepage_url',
+                    'display_name_acroynyms', 'display_name_alternatives', 'works_count', 'cited_by_count',
+                    'updated_date'
+                ]
+            },
+            'ids': {
+                'name': os.path.join(CSV_DIR, 'institutions_ids.csv.gz'),
             'columns': [
                 'institution_id', 'institution_name', 'openalex', 'ror', 'grid', 'wikipedia', 'wikidata', 'mag'
             ]
@@ -202,10 +208,40 @@ csv_files = {
             ]
         },
     },
-}
+    }
+
+
+def read_csvs(paths):
+    """
+    Return the concatenated df after reaching CSVs from paths
+    """
+    df = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+    return df
+
+
+def get_skip_ids(kind):
+    """
+    Get the set of IDs that have been merged with other IDs to skip over them
+    """
+    merged_entries_path = SNAPSHOT_DIR / 'data' / 'merged_ids' / kind
+    if merged_entries_path.exists():
+        merged_df = read_csvs(merged_entries_path.glob('*.csv.gz'))
+        skip_ids = set(
+            merged_df
+            .id
+        )
+        skip_ids = {convert_openalex_id_to_int(id_) for id_ in skip_ids}
+        print(f'{kind!r} {len(skip_ids):,} merged IDs')
+    else:
+        skip_ids = set()
+
+    return skip_ids
 
 
 def flatten_concepts():
+    # read the merged entries and skip over those entries
+    skip_ids = get_skip_ids('concepts')
+
     with gzip.open(csv_files['concepts']['concepts']['name'], 'wt', encoding='utf-8') as concepts_csv, \
             gzip.open(csv_files['concepts']['ancestors']['name'], 'wt', encoding='utf-8') as ancestors_csv, \
             gzip.open(csv_files['concepts']['counts_by_year']['name'], 'wt', encoding='utf-8') as counts_by_year_csv, \
@@ -247,6 +283,9 @@ def flatten_concepts():
                         continue
 
                     concept_id = convert_openalex_id_to_int(concept_id)  # convert to int
+                    if concept_id in skip_ids:  # skip over already merged IDs
+                        continue
+
                     concept_name = concept['display_name']
                     seen_concept_ids.add(concept_id)
 
@@ -287,6 +326,8 @@ def flatten_concepts():
 
 
 def flatten_venues():
+    skip_ids = get_skip_ids('venues')
+
     with gzip.open(csv_files['venues']['venues']['name'], 'wt', encoding='utf-8') as venues_csv, \
             gzip.open(csv_files['venues']['ids']['name'], 'wt', encoding='utf-8') as ids_csv, \
             gzip.open(csv_files['venues']['counts_by_year']['name'], 'wt', encoding='utf-8') as counts_by_year_csv:
@@ -319,6 +360,9 @@ def flatten_venues():
                         continue
 
                     venue_id = convert_openalex_id_to_int(venue_id)
+                    if venue_id in skip_ids:  # skip over merged IDs
+                        continue
+
                     venue_name = venue['display_name']
                     venue['venue_name'] = venue_name
                     seen_venue_ids.add(venue_id)
@@ -342,6 +386,8 @@ def flatten_venues():
 
 
 def flatten_institutions():
+    skip_ids = get_skip_ids('institutions')
+
     file_spec = csv_files['institutions']
 
     with gzip.open(file_spec['institutions']['name'], 'wt', encoding='utf-8') as institutions_csv, \
@@ -385,6 +431,9 @@ def flatten_institutions():
                         continue
 
                     institution_id = convert_openalex_id_to_int(institution_id)
+                    if institution_id in skip_ids:
+                        continue
+
                     institution_name = institution['display_name']
                     seen_institution_ids.add(institution_id)
 
@@ -429,6 +478,8 @@ def flatten_institutions():
 
 
 def flatten_authors(files_to_process: Union[str, int] = 'all'):
+    skip_ids = get_skip_ids('authors')
+
     file_spec = csv_files['authors']
 
     authors_csv_exists = Path(file_spec['authors']['name']).exists()
@@ -465,7 +516,7 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
             finished_files = set()
 
         authors_manifest = read_manifest(kind='authors', snapshot_dir=SNAPSHOT_DIR / 'data')
-        files = [entry.filename for entry in authors_manifest.entries]
+        files = [str(entry.filename) for entry in authors_manifest.entries]
         # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
         files = [f for f in files if f not in finished_files]
 
@@ -489,6 +540,9 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                 if not (author_id := author.get('id')):
                     continue
                 author_id = convert_openalex_id_to_int(author_id)
+                if author_id in skip_ids:
+                    continue
+
                 author_name = author['display_name']
 
                 # authors
@@ -499,6 +553,10 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                 if last_known_institution is not None:
                     last_known_institution = convert_openalex_id_to_int(last_known_institution)
                 author['last_known_institution'] = last_known_institution
+
+                orcid = author['orcid']
+                orcid = orcid.replace('https://orcid.org/', '') if orcid is not None else None
+                author['orcid'] = orcid
 
                 authors_writer.writerow(author)
 
@@ -522,6 +580,8 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
 
 
 def flatten_works(files_to_process: Union[str, int] = 'all'):
+    skip_ids = get_skip_ids('works')
+
     file_spec = csv_files['works']
 
     with gzip.open(file_spec['works']['name'], 'at', encoding='utf-8') as works_csv, \
@@ -560,8 +620,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
             finished_files = set()
 
         works_manifest = read_manifest(kind='works', snapshot_dir=SNAPSHOT_DIR / 'data')
-        files = [entry.filename for entry in works_manifest.entries]
-        # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'works', '*', '*.gz')))
+        files = [str(entry.filename) for entry in works_manifest.entries]
+        # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
         files = [f for f in files if f not in finished_files]
 
         print(f'This might take a while, like 20 hours..')
@@ -570,7 +630,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
             files_to_process = len(files)
         print(f'{files_to_process=}')
 
-        for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=len(files),
+        for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=files_to_process,
                                        unit=' file'):
             if i > files_to_process:
                 break
@@ -589,8 +649,13 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
 
                 # works
                 work_id = convert_openalex_id_to_int(work_id)
-                work['work_id'] = work_id
+                if work_id in skip_ids:
+                    continue
 
+                work['work_id'] = work_id
+                doi = work['doi']
+                doi = doi.replace('https://doi.org/', '') if doi is not None else None
+                work['doi'] = doi
                 works_writer.writerow(work)
 
                 # host_venues
@@ -674,6 +739,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                 # ids
                 if ids := work.get('ids'):
                     ids['work_id'] = work_id
+                    ids['doi'] = doi
                     ids_writer.writerow(ids)
 
                 # mesh
@@ -712,6 +778,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                         abstract = reconstruct_abstract(abstract_inv_index)
                     except orjson.JSONDecodeError as e:
                         abstract = ''
+
                     abstract_row = {'work_id': work_id, 'title': work['title'], 'abstract': abstract}
                     abstracts_writer.writerow(abstract_row)
 
@@ -732,9 +799,9 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
 
 
 if __name__ == '__main__':
-    #     # flatten_concepts()  # takes about 30s
-    #     # flatten_venues()  # takes about 20s
-    #     flatten_institutions()  # takes about 20s
+    # flatten_concepts()  # takes about 30s 2022-05-27,153219969,335685885
+    # flatten_venues()  # takes about 20s
+    # flatten_institutions()  # takes about 20s
 
     files_to_process = 'all'  # to do everything
     # files_to_process = 2  # or any other number
