@@ -83,6 +83,12 @@ csv_files = \
             'columns': [
                 'author_id', 'author_name', 'year', 'works_count', 'cited_by_count'
             ]
+        },
+        'concepts': {
+            'name': os.path.join(CSV_DIR, 'authors_concepts.csv.gz'),
+            'columns': [
+                'author_id', 'author_name', 'concept_id', 'concept_name', 'level', 'score'
+            ]
         }
     },
 
@@ -485,10 +491,12 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
     authors_csv_exists = Path(file_spec['authors']['name']).exists()
     ids_csv_exists = Path(file_spec['ids']['name']).exists()
     counts_by_year_csv_exists = Path(file_spec['counts_by_year']['name']).exists()
+    authors_concepts_csv_exists = Path(file_spec['concepts']['name']).exists()
 
     with gzip.open(file_spec['authors']['name'], 'at', encoding='utf-8') as authors_csv, \
             gzip.open(file_spec['ids']['name'], 'at', encoding='utf-8') as ids_csv, \
-            gzip.open(file_spec['counts_by_year']['name'], 'at', encoding='utf-8') as counts_by_year_csv:
+            gzip.open(file_spec['counts_by_year']['name'], 'at', encoding='utf-8') as counts_by_year_csv, \
+            gzip.open(file_spec['concepts']['name'], 'at', encoding='utf-8') as authors_concepts_csv:
 
         authors_writer = csv.DictWriter(
             authors_csv, fieldnames=file_spec['authors']['columns'], extrasaction='ignore'
@@ -503,6 +511,12 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
         counts_by_year_writer = csv.DictWriter(counts_by_year_csv, fieldnames=file_spec['counts_by_year']['columns'])
         if not counts_by_year_csv_exists:
             counts_by_year_writer.writeheader()
+
+        authors_concepts_writer = csv.DictWriter(
+            authors_concepts_csv, fieldnames=file_spec['concepts']['columns'], extrasaction='ignore'
+        )
+        if not authors_concepts_csv_exists:
+            authors_concepts_writer.writeheader()
 
         print(f'This might take a while, like 6-7 hours..')
 
@@ -573,8 +587,87 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                         count_by_year['author_name'] = author_name
                         counts_by_year_writer.writerow(count_by_year)
 
+                # concepts
+                if x_concepts := author.get('x_concepts'):
+                    for x_concept in x_concepts:
+                        x_concept['author_id'] = author_id
+                        x_concept['author_name'] = author_name
+                        x_concept['concept_id'] = convert_openalex_id_to_int(x_concept['id'])
+                        x_concept['concept_name'] = x_concept['display_name']
+
+                        authors_concepts_writer.writerow(x_concept)
+
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+
+    return
+
+
+def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
+    skip_ids = get_skip_ids('authors')
+    file_spec = csv_files['authors']
+
+    authors_concepts_csv_exists = Path(file_spec['concepts']['name']).exists()
+
+    with gzip.open(file_spec['concepts']['name'], 'at', encoding='utf-8') as authors_concepts_csv:
+        authors_concepts_writer = csv.DictWriter(
+            authors_concepts_csv, fieldnames=file_spec['concepts']['columns'], extrasaction='ignore'
+        )
+        if not authors_concepts_csv_exists:
+            authors_concepts_writer.writeheader()
+
+        print(f'This might take a while, like 6-7 hours..')
+
+        finished_files_pickle_path = CSV_DIR / 'temp' / 'finished_authors_concepts.pkl'
+        finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
+
+        if finished_files_pickle_path.exists():
+            finished_files = load_pickle(finished_files_pickle_path)  # load the pickle
+            print(f'{len(finished_files)} existing files found!')
+        else:
+            finished_files = set()
+
+        authors_manifest = read_manifest(kind='authors', snapshot_dir=SNAPSHOT_DIR / 'data')
+        files = [str(entry.filename) for entry in authors_manifest.entries]
+        # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
+        files = [f for f in files if f not in finished_files]
+
+        if files_to_process == 'all':
+            files_to_process = len(files)
+        print(f'{files_to_process=}')
+
+        for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening author concepts...', unit=' file',
+                                       total=len(files)):
+            if i > files_to_process:
+                break
+
+            with gzip.open(jsonl_file_name, 'r') as authors_jsonl:
+                authors_jsonls = authors_jsonl.readlines()
+
+            for author_json in tqdm(authors_jsonls, desc='Parsing JSONs', leave=False, unit=' line', unit_scale=True):
+                if not author_json.strip():
+                    continue
+
+                author = orjson.loads(author_json)
+
+                if not (author_id := author.get('id')):
+                    continue
+                author_id = convert_openalex_id_to_int(author_id)
+                if author_id in skip_ids:
+                    continue
+
+                author_name = author['display_name']
+                if x_concepts := author.get('x_concepts'):
+                    for x_concept in x_concepts:
+                        x_concept['author_id'] = author_id
+                        x_concept['author_name'] = author_name
+                        x_concept['concept_id'] = convert_openalex_id_to_int(x_concept['id'])
+                        x_concept['concept_name'] = x_concept['display_name']
+
+                        authors_concepts_writer.writerow(x_concept)
+
+                finished_files.add(str(jsonl_file_name))
+                dump_pickle(obj=finished_files, path=finished_files_pickle_path)
 
     return
 
@@ -803,8 +896,9 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    files_to_process = 'all'  # to do everything
-    # files_to_process = 2  # or any other number
+    # files_to_process = 'all'  # to do everything
+    files_to_process = 2  # or any other number
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
-    flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
+    flatten_authors_concepts(files_to_process=files_to_process)
+    # flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
