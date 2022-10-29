@@ -105,7 +105,9 @@ def read_manifest(kind: str, snapshot_dir) -> Box:
                      'count': raw_entry.meta.record_count,
                      'updated_date': '_'.join(filename.parts[-2:]).replace('.gz', '')})
         entries.append(entry)
-    data['entries'] = entries
+
+    data['entries'] = sorted(entries, key=lambda x: x.count)
+
     return data
 
 
