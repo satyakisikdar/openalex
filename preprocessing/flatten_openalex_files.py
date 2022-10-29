@@ -87,7 +87,8 @@ csv_files = \
         'concepts': {
             'name': os.path.join(CSV_DIR, 'authors_concepts.csv.gz'),
             'columns': [
-                'author_id', 'author_name', 'concept_id', 'concept_name', 'level', 'score'
+                'author_id', 'author_name', 'works_count', 'cited_by_count', 'concept_id', 'concept_name', 'level',
+                'score'
             ]
         }
     },
@@ -676,6 +677,8 @@ def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
                         x_concept['author_name'] = author_name
                         x_concept['concept_id'] = convert_openalex_id_to_int(x_concept['id'])
                         x_concept['concept_name'] = x_concept['display_name']
+                        x_concept['works_count'] = author.get('works_count', 0)
+                        x_concept['cited_by_count'] = author.get('cited_by_count', 0)
                         author_concept_rows.append(x_concept)
 
                         # authors_concepts_writer.writerow(x_concept)
