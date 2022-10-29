@@ -606,15 +606,25 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
 def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
     skip_ids = get_skip_ids('authors')
     file_spec = csv_files['authors']
+    authors_concepts_zero_filename = CSV_DIR / 'authors_concepts_zero.csv.gz'
 
     authors_concepts_csv_exists = Path(file_spec['concepts']['name']).exists()
+    authors_concepts_zero_csv_exists = authors_concepts_zero_filename.exists()
 
-    with gzip.open(file_spec['concepts']['name'], 'at', encoding='utf-8') as authors_concepts_csv:
+    with gzip.open(file_spec['concepts']['name'], 'at', encoding='utf-8') as authors_concepts_csv, \
+            gzip.open(authors_concepts_zero_filename, 'at', encoding='utf-8') as authors_concepts_zero_csv:
+
         authors_concepts_writer = csv.DictWriter(
             authors_concepts_csv, fieldnames=file_spec['concepts']['columns'], extrasaction='ignore'
         )
         if not authors_concepts_csv_exists:
             authors_concepts_writer.writeheader()
+
+        authors_concepts_zero_writer = csv.DictWriter(
+            authors_concepts_zero_csv, fieldnames=file_spec['concepts']['columns'], extrasaction='ignore'
+        )
+        if not authors_concepts_zero_csv_exists:
+            authors_concepts_zero_writer.writeheader()
 
         print(f'This might take a while, like 6-7 hours..')
 
@@ -628,6 +638,7 @@ def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
             finished_files = set()
 
         authors_manifest = read_manifest(kind='authors', snapshot_dir=SNAPSHOT_DIR / 'data')
+
         files = [str(entry.filename) for entry in authors_manifest.entries]
         # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
         files = [f for f in files if f not in finished_files]
@@ -643,6 +654,8 @@ def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
 
             with gzip.open(jsonl_file_name, 'r') as authors_jsonl:
                 authors_jsonls = authors_jsonl.readlines()
+            author_concept_rows = []
+            author_concept_zero_rows = []
 
             for author_json in tqdm(authors_jsonls, desc='Parsing JSONs', leave=False, unit=' line', unit_scale=True):
                 if not author_json.strip():
@@ -663,11 +676,19 @@ def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
                         x_concept['author_name'] = author_name
                         x_concept['concept_id'] = convert_openalex_id_to_int(x_concept['id'])
                         x_concept['concept_name'] = x_concept['display_name']
+                        author_concept_rows.append(x_concept)
 
-                        authors_concepts_writer.writerow(x_concept)
+                        # authors_concepts_writer.writerow(x_concept)
 
-                finished_files.add(str(jsonl_file_name))
-                dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+                        if x_concept['level'] == 0:  # store only level 0 concepts here
+                            # authors_concepts_zero_writer.writerow(x_concept)
+                            author_concept_zero_rows.append(x_concept)
+
+            authors_concepts_writer.writerows(author_concept_rows)
+            authors_concepts_zero_writer.writerows(author_concept_zero_rows)
+
+            finished_files.add(str(jsonl_file_name))
+            dump_pickle(obj=finished_files, path=finished_files_pickle_path)
 
     return
 
@@ -896,8 +917,8 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    # files_to_process = 'all'  # to do everything
-    files_to_process = 2  # or any other number
+    files_to_process = 'all'  # to do everything
+    # files_to_process = 5  # or any other number
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     flatten_authors_concepts(files_to_process=files_to_process)
