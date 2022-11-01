@@ -773,6 +773,9 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                 doi = work['doi']
                 doi = doi.replace('https://doi.org/', '') if doi is not None else None
                 work['doi'] = doi
+
+                title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
+                work['title'] = title
                 works_writer.writerow(work)
 
                 # host_venues
