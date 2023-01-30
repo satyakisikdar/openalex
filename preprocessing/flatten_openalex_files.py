@@ -90,6 +90,12 @@ csv_files = \
                 'author_id', 'author_name', 'works_count', 'cited_by_count', 'concept_id', 'concept_name', 'level',
                 'score'
             ]
+        },
+        'hints': {
+            'name': os.path.join(CSV_DIR, 'authors_hints.csv.gz'),
+            'columns': [
+                'author_id', 'author_name', 'works_count', 'cited_by_count', 'most_cited_work'
+            ]
         }
     },
 
@@ -124,7 +130,8 @@ csv_files = \
         'venues': {
             'name': os.path.join(CSV_DIR, 'venues.csv.gz'),
             'columns': [
-                'venue_id', 'issn_l', 'issn', 'venue_name', 'publisher', 'works_count', 'cited_by_count', 'is_oa',
+                'venue_id', 'issn_l', 'issn', 'venue_name', 'type', 'publisher', 'works_count', 'cited_by_count',
+                'is_oa',
                 'is_in_doaj', 'homepage_url', 'updated_date'
             ]
         },
@@ -303,8 +310,8 @@ def flatten_concepts():
                     if concept_ids := concept.get('ids'):
                         concept_ids['concept_id'] = concept_id
                         concept_ids['concept_name'] = concept_name
-                        concept_ids['umls_aui'] = json.dumps(concept_ids.get('umls_aui'))
-                        concept_ids['umls_cui'] = json.dumps(concept_ids.get('umls_cui'))
+                        concept_ids['umls_aui'] = json.dumps(concept_ids.get('umls_aui'), ensure_ascii=False)
+                        concept_ids['umls_cui'] = json.dumps(concept_ids.get('umls_cui'), ensure_ascii=False)
                         ids_writer.writerow(concept_ids)
 
                     if ancestors := concept.get('ancestors'):
@@ -447,8 +454,10 @@ def flatten_institutions():
                     # institutions
                     institution['institution_id'] = institution_id
                     institution['institution_name'] = institution_name
-                    institution['display_name_acroynyms'] = json.dumps(institution.get('display_name_acroynyms'))
-                    institution['display_name_alternatives'] = json.dumps(institution.get('display_name_alternatives'))
+                    institution['display_name_acroynyms'] = json.dumps(institution.get('display_name_acroynyms'),
+                                                                       ensure_ascii=False)
+                    institution['display_name_alternatives'] = json.dumps(institution.get('display_name_alternatives'),
+                                                                          ensure_ascii=False)
                     institutions_writer.writerow(institution)
 
                     # ids
@@ -493,11 +502,13 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
     ids_csv_exists = Path(file_spec['ids']['name']).exists()
     counts_by_year_csv_exists = Path(file_spec['counts_by_year']['name']).exists()
     authors_concepts_csv_exists = Path(file_spec['concepts']['name']).exists()
+    authors_hints_csv_exists = Path(file_spec['hints']['name']).exists()
 
     with gzip.open(file_spec['authors']['name'], 'at', encoding='utf-8') as authors_csv, \
             gzip.open(file_spec['ids']['name'], 'at', encoding='utf-8') as ids_csv, \
             gzip.open(file_spec['counts_by_year']['name'], 'at', encoding='utf-8') as counts_by_year_csv, \
-            gzip.open(file_spec['concepts']['name'], 'at', encoding='utf-8') as authors_concepts_csv:
+            gzip.open(file_spec['concepts']['name'], 'at', encoding='utf-8') as authors_concepts_csv, \
+            gzip.open(file_spec['hints']['name'], 'at', encoding='utf-8') as authors_hints_csv:
 
         authors_writer = csv.DictWriter(
             authors_csv, fieldnames=file_spec['authors']['columns'], extrasaction='ignore'
@@ -518,6 +529,12 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
         )
         if not authors_concepts_csv_exists:
             authors_concepts_writer.writeheader()
+
+        authors_hints_writer = csv.DictWriter(
+            authors_hints_csv, fieldnames=file_spec['hints']['columns'], extrasaction='ignore'
+        )
+        if not authors_hints_csv_exists:
+            authors_hints_writer.writeheader()
 
         print(f'This might take a while, like 6-7 hours..')
 
@@ -563,7 +580,8 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                 # authors
                 author['author_id'] = author_id
                 author['author_name'] = author_name
-                author['display_name_alternatives'] = json.dumps(author.get('display_name_alternatives'))
+                author['display_name_alternatives'] = json.dumps(author.get('display_name_alternatives'),
+                                                                 ensure_ascii=False)
                 last_known_institution = (author.get('last_known_institution') or {}).get('id')
                 if last_known_institution is not None:
                     last_known_institution = convert_openalex_id_to_int(last_known_institution)
@@ -597,6 +615,17 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                         x_concept['concept_name'] = x_concept['display_name']
 
                         authors_concepts_writer.writerow(x_concept)
+
+                # hints
+                author_hints_row = {}
+                author_name = author['display_name']
+                author_hints_row['author_id'] = author_id
+                author_hints_row['author_name'] = author_name
+                author_hints_row['works_count'] = author.get('works_count', 0)
+                author_hints_row['cited_by_count'] = author.get('cited_by_count', 0)
+                author_hints_row['most_cited_work'] = author.get('most_cited_work', '')
+
+                authors_hints_writer.writerow(author_hints_row)
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
@@ -690,6 +719,80 @@ def flatten_authors_concepts(files_to_process: Union[str, int] = 'all'):
             authors_concepts_writer.writerows(author_concept_rows)
             authors_concepts_zero_writer.writerows(author_concept_zero_rows)
 
+            finished_files.add(str(jsonl_file_name))
+            dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+
+    return
+
+
+def flatten_authors_hints(files_to_process: Union[str, int] = 'all'):
+    skip_ids = get_skip_ids('authors')
+    file_spec = csv_files['authors']
+
+    authors_hints_csv_exists = Path(file_spec['hints']['name']).exists()
+
+    with gzip.open(file_spec['hints']['name'], 'at', encoding='utf-8') as authors_hints_csv:
+        authors_hints_writer = csv.DictWriter(
+            authors_hints_csv, fieldnames=file_spec['hints']['columns'], extrasaction='ignore'
+        )
+        if not authors_hints_csv_exists:
+            authors_hints_writer.writeheader()
+
+        print(f'This might take a while, like 6-7 hours..')
+
+        finished_files_pickle_path = CSV_DIR / 'temp' / 'finished_authors_hints.pkl'
+        finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
+
+        if finished_files_pickle_path.exists():
+            finished_files = load_pickle(finished_files_pickle_path)  # load the pickle
+            print(f'{len(finished_files)} existing files found!')
+        else:
+            finished_files = set()
+
+        authors_manifest = read_manifest(kind='authors', snapshot_dir=SNAPSHOT_DIR / 'data')
+
+        files = [str(entry.filename) for entry in authors_manifest.entries]
+        # files = map(str, glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'authors', '*', '*.gz')))
+        files = [f for f in files if f not in finished_files]
+
+        if files_to_process == 'all':
+            files_to_process = len(files)
+        print(f'{files_to_process=}')
+
+        for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening author hints...', unit=' file',
+                                       total=len(files)):
+            if i > files_to_process:
+                break
+
+            with gzip.open(jsonl_file_name, 'r') as authors_jsonl:
+                authors_jsonls = authors_jsonl.readlines()
+
+            author_hints_rows = []
+            for author_json in tqdm(authors_jsonls, desc='Parsing JSONs', leave=False, unit=' line', unit_scale=True):
+                if not author_json.strip():
+                    continue
+
+                author = orjson.loads(author_json)
+                # print(f'{author=}')
+                # break
+
+                if not (author_id := author.get('id')):
+                    continue
+                author_id = convert_openalex_id_to_int(author_id)
+                if author_id in skip_ids:
+                    continue
+
+                author_hints_row = {}
+                author_name = author['display_name']
+                author_hints_row['author_id'] = author_id
+                author_hints_row['author_name'] = author_name
+                author_hints_row['works_count'] = author.get('works_count', 0)
+                author_hints_row['cited_by_count'] = author.get('cited_by_count', 0)
+                author_hints_row['most_cited_work'] = author.get('most_cited_work', '')
+
+                author_hints_rows.append(author_hints_row)
+
+            authors_hints_writer.writerows(author_hints_rows)
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
 
@@ -923,9 +1026,11 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
+    # files_to_process = 2
     files_to_process = 'all'  # to do everything
     # files_to_process = 5  # or any other number
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
-    flatten_authors_concepts(files_to_process=files_to_process)
+    # flatten_authors_concepts(files_to_process=files_to_process)
+    flatten_authors_hints(files_to_process=files_to_process)
     # flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
