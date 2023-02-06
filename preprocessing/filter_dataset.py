@@ -11,14 +11,39 @@ from pathlib import Path
 import pandas as pd
 from tqdm.auto import tqdm
 
+# october
+# works: 243_522_437
+# works_concepts: 1_831_732_671
+# host_venues: 128_002_586
 
-def process_work_chunk(df, idx, parq_path):
+dtypes = {
+    'works': dict(work_id='int64', doi='string', title='string', publication_year='Int16', publication_date='string',
+                  type='string', cited_by_count='uint32', is_retracted=float, is_paratext=float),
+    'authorships': dict(
+        work_id='int64', author_position='category', author_id='Int64', author_name='string',
+        institution_id='Int64', institution_name='string', raw_affiliation_string='string',
+        publication_year='Int16'),
+    'host_venues': dict(
+        work_id='int64', venue_id='Int64', venue_name='string', url='string', is_oa=float, version='string',
+        license='string'
+    ),
+    'referenced_works': dict(
+        work_id='int64', referenced_work_id='int64'
+    ),
+    'concepts': dict(
+        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
+        score=float
+    )
+}
+
+
+def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
     """
     Process each chunked df with index idx
     """
     work_types = {'journal-article', 'proceedings-article', 'posted-content',
-                  'book-chapter'}  # only keep these article types
-    start_year, end_year = 2012, 2022  # year range
+                  'book-chapter'}  # only keep these types
+    start_year, end_year = year_range  # year range
 
     (parq_path / f'_works').mkdir(exist_ok=True)  # create necessary dirs
     parq_filename = parq_path / f'_works' / f'part-{idx}.parquet'
@@ -70,10 +95,7 @@ def write_filtered_works_table(csv_path, parq_path):
         print(f'Filtered works parquet exists at {str(works_parq_filename)}.')
         return
 
-    dtypes = dict(work_id='Int64', doi='string', title='string', publication_year=float, publication_date='string',
-                  type='string', cited_by_count='uint32', is_retracted=float, is_paratext=float)
-
-    with pd.read_csv(csv_path / f'works.csv.gz', engine='c', chunksize=chunksize, dtype=dtypes) as reader:
+    with pd.read_csv(csv_path / f'works.csv.gz', engine='c', chunksize=chunksize, dtype=dtypes['works']) as reader:
         # TODO: process each chunk in parallel
         for i, chunked_df in tqdm(enumerate(reader), total=num_chunks['works_works'], desc='Filtering works...'):
             process_work_chunk(df=chunked_df, idx=i, parq_path=parq_path)
@@ -99,25 +121,7 @@ def write_other_filtered_tables(csv_path, parq_path, work_ids):
     chunksize = 50_000_000
     num_chunks = {kind: rows // chunksize + 1 for kind, rows in row_counts.items()}
 
-    dtypes = {
-        'authorships': dict(
-            work_id='Int64', author_position='category', author_id='Int64', author_name='string',
-            institution_id='Int64', institution_name='string', raw_affiliation_string='string',
-            publication_year='Int64'),
-        'host_venues': dict(
-            work_id='Int64', venue_id='Int64', venue_name='string', url='string', is_oa=float, version='string',
-            license='string'
-        ),
-        'referenced_works': dict(
-            work_id='Int64', referenced_work_id='Int64'
-        ),
-        'concepts': dict(
-            work_id='Int64', publication_year='Int64', concept_id='Int64', concept_name='category', level='uint8',
-            score=float
-        )
-    }
-
-    kinds = ['authorships', 'host_venues', 'referenced_works', 'concepts']
+    kinds = ['authorships', 'host_venues', 'concepts', 'referenced_works'][-1:]
     for kind in tqdm(kinds):
         print(f'{kind=}')
         final_parq_path = parq_path / f'works_{kind}.parquet'
@@ -158,6 +162,35 @@ def write_other_filtered_tables(csv_path, parq_path, work_ids):
     return
 
 
+def get_concept_workids(concept_name):
+    # get concept IDs
+
+    return
+
+
+def cs_filter():
+    # step 0: set paths
+    csv_path = Path('/N/project/openalex/ssikdar/csv-files-new')  # set path to flattened CSV files
+    parq_path = Path('/N/project/openalex/slices/CS')  # set path for storing the filtered parquet files
+    assert csv_path is not None and parq_path is not None, f'please set CSV and parquet directories'
+
+    # step 1: filter the works table to contain specific article types and year ranges
+    # write_filtered_works_table(csv_path=csv_path, parq_path=parq_path)
+
+    # step 2: filted the rest of the works_* tables based on the works filtered in step 1
+    works_parquet_filename = parq_path / 'works.parquet'
+    assert works_parquet_filename.exists(), f'Filtered works parquet does not exists!'
+
+    work_ids = set(
+        pd.read_parquet(works_parquet_filename, columns=['work_id'])  # read only the work id column
+        .index
+    )
+    print(next(iter(work_ids)))
+    print(f'{len(work_ids):,} work ids loaded')
+    write_other_filtered_tables(csv_path=csv_path, parq_path=parq_path, work_ids=work_ids)
+    return
+
+
 def main():
     # step 0: set paths
     csv_path = Path('/N/project/openalex/ssikdar/csv-files-new')  # set path to flattened CSV files
@@ -165,7 +198,7 @@ def main():
     assert csv_path is not None and parq_path is not None, f'please set CSV and parquet directories'
 
     # step 1: filter the works table to contain specific article types and year ranges
-    # write_filtered_works_table(csv_path=csv_path, parq_path=parq_path)
+    write_filtered_works_table(csv_path=csv_path, parq_path=parq_path)
 
     # step 2: filted the rest of the works_* tables based on the works filtered in step 1
     works_parquet_filename = parq_path / 'works.parquet'
