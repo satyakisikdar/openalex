@@ -157,7 +157,7 @@ csv_files = \
         'abstracts': {
             'name': os.path.join(CSV_DIR, 'works_abstracts.csv.gz'),
             'columns': [
-                'work_id', 'title', 'abstract'
+                'work_id', 'title', 'publication_year', 'abstract',
             ]
         },
         'host_venues': {
@@ -1002,7 +1002,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                     except orjson.JSONDecodeError as e:
                         abstract = ''
 
-                    abstract_row = {'work_id': work_id, 'title': work['title'], 'abstract': abstract}
+                    abstract_row = {'work_id': work_id, 'title': work['title'], 'abstract': abstract,
+                                    'publication_year': work.get('publication_year')}
                     abstracts_writer.writerow(abstract_row)
 
             finished_files.add(str(jsonl_file_name))
