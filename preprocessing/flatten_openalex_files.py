@@ -877,7 +877,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                 doi = doi.replace('https://doi.org/', '') if doi is not None else None
                 work['doi'] = doi
 
-                title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
+                title = work['title'].replace(r'\n', ' ') if work[
+                                                                 'title'] is not None else None  # deleting stray \n's in title
                 work['title'] = title
                 works_writer.writerow(work)
 
@@ -1002,7 +1003,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                     except orjson.JSONDecodeError as e:
                         abstract = ''
 
-                    abstract_row = {'work_id': work_id, 'title': work['title'], 'abstract': abstract,
+                    abstract_row = {'work_id': work_id, 'title': title, 'abstract': abstract,
                                     'publication_year': work.get('publication_year')}
                     abstracts_writer.writerow(abstract_row)
 
