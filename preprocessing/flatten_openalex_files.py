@@ -869,9 +869,12 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
             files_to_process = len(files)
         print(f'{files_to_process=}')
 
+        work_rows, id_rows, host_venue_rows, alt_venues_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
+        concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
+
         for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=files_to_process,
-                                       unit=' file'):
-            if i > files_to_process:
+                                       unit=' files'):
+            if i >= files_to_process:
                 break
 
             with gzip.open(jsonl_file_name, 'r') as works_jsonl:
@@ -899,13 +902,14 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                 title = work['title'].replace(r'\n', ' ') if work[
                                                                  'title'] is not None else None  # deleting stray \n's in title
                 work['title'] = title
-                works_writer.writerow(work)
+                # works_writer.writerow(work)
+                work_rows.append(work)
 
                 # host_venues
                 if host_venue := (work.get('host_venue') or {}):
                     if host_venue_id := host_venue.get('id'):
                         host_venue_id = convert_openalex_id_to_int(host_venue_id)
-                        host_venues_writer.writerow({
+                        host_venue_rows.append({
                             'work_id': work_id,
                             'venue_id': host_venue_id,
                             'venue_name': host_venue.get('display_name'),
@@ -920,7 +924,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                     for alternate_host_venue in alternate_host_venues:
                         if venue_id := alternate_host_venue.get('id'):
                             venue_id = convert_openalex_id_to_int(venue_id)
-                            alternate_host_venues_writer.writerow({
+                            # alternate_host_venues_writer.writerow({
+                            alt_venues_rows.append({
                                 'work_id': work_id,
                                 'venue_id': venue_id,
                                 'venue_name': alternate_host_venue.get('display_name'),
@@ -947,7 +952,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                             institution_names = institution_names or [None]
 
                             for institution_id, institution_name in zip(institution_ids, institution_names):
-                                authorships_writer.writerow({
+                                authorship_rows.append({
+                                    # authorships_writer.writerow({
                                     'work_id': work_id,
                                     'author_position': authorship.get('author_position'),
                                     'author_id': author_id,
@@ -961,7 +967,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                 # biblio
                 if biblio := work.get('biblio'):
                     biblio['work_id'] = work_id
-                    biblio_writer.writerow(biblio)
+                    biblio_rows.append(biblio)
+                    # biblio_writer.writerow(biblio)
 
                 # concepts
                 for concept in work.get('concepts'):
@@ -970,7 +977,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                         concept_name = concept.get('display_name')
                         level = concept.get('level')
 
-                        concepts_writer.writerow({
+                        # concepts_writer.writerow({
+                        concept_rows.append({
                             'work_id': work_id,
                             'publication_year': work.get('publication_year'),
                             'concept_id': concept_id,
@@ -983,24 +991,27 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                 if ids := work.get('ids'):
                     ids['work_id'] = work_id
                     ids['doi'] = doi
-                    ids_writer.writerow(ids)
+                    id_rows.append(ids)
+                    # ids_writer.writerow(ids)
 
                 # mesh
                 for mesh in work.get('mesh'):
                     mesh['work_id'] = work_id
-                    mesh_writer.writerow(mesh)
+                    mesh_rows.append(mesh)
+                    # mesh_writer.writerow(mesh)
 
                 # open_access
                 if open_access := work.get('open_access'):
                     open_access['work_id'] = work_id
-                    open_access_writer.writerow(open_access)
+                    oa_rows.append(open_access)
+                    # open_access_writer.writerow(open_access)
 
                 # referenced_works
                 for referenced_work in work.get('referenced_works'):
                     if referenced_work:
                         referenced_work = convert_openalex_id_to_int(referenced_work)
-
-                        referenced_works_writer.writerow({
+                        refs_rows.append({
+                            # referenced_works_writer.writerow({
                             'work_id': work_id,
                             'referenced_work_id': referenced_work
                         })
@@ -1010,7 +1021,8 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                     if related_work:
                         related_work = convert_openalex_id_to_int(related_work)
 
-                        related_works_writer.writerow({
+                        # related_works_writer.writerow({
+                        rels_rows.append({
                             'work_id': work_id,
                             'related_work_id': related_work
                         })
@@ -1024,7 +1036,22 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
 
                     abstract_row = {'work_id': work_id, 'title': title, 'abstract': abstract,
                                     'publication_year': work.get('publication_year')}
-                    abstracts_writer.writerow(abstract_row)
+                    abstract_rows.append(abstract_row)
+                    # abstracts_writer.writerow(abstract_row)
+
+            # write the batched CSVs here
+            works_writer.writerows(work_rows)
+            ids_writer.writerows(id_rows)
+            host_venues_writer.writerows(host_venue_rows)
+            alternate_host_venues_writer.writerows(alt_venues_rows)
+            authorships_writer.writerows(authorship_rows)
+            biblio_writer.writerows(biblio_rows)
+            concepts_writer.writerows(concept_rows)
+            mesh_writer.writerows(mesh_rows)
+            open_access_writer.writerows(oa_rows)
+            referenced_works_writer.writerows(refs_rows)
+            related_works_writer.writerows(rels_rows)
+            abstracts_writer.writerows(abstract_rows)
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
@@ -1047,11 +1074,11 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    files_to_process = 50
+    files_to_process = 2
     # files_to_process = 'all'  # to do everything
     # files_to_process = 5  # or any other number
 
-    flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
+    # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
-    # flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
+    flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
