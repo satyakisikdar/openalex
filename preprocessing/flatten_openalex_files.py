@@ -1046,29 +1046,53 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                     # abstracts_writer.writerow(abstract_row)
 
             # write the batched CSVs here
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='works', rows=work_rows,
-                                     csv_writer=works_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='ids', rows=id_rows, csv_writer=ids_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='host_venues', rows=host_venue_rows,
-                                     csv_writer=host_venues_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='alternate_host_venues', rows=alt_venues_rows,
-                                     csv_writer=alternate_host_venues_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='authorships', rows=authorship_rows,
-                                     csv_writer=authorships_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='biblio', rows=biblio_rows,
-                                     csv_writer=biblio_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='concepts', rows=concept_rows,
-                                     csv_writer=concepts_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='open_access', rows=oa_rows,
-                                     csv_writer=open_access_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='mesh', rows=mesh_rows,
-                                     csv_writer=mesh_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='referenced_works', rows=refs_rows,
-                                     csv_writer=referenced_works_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='related_works', rows=rels_rows,
-                                     csv_writer=related_works_writer)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='abstracts', rows=abstract_rows,
-                                     csv_writer=abstracts_writer)
+            with tqdm(total=12, desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='works', rows=work_rows,
+                                         csv_writer=works_writer)
+                pbar.update(1)
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='ids', rows=id_rows, csv_writer=ids_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='host_venues', rows=host_venue_rows,
+                                         csv_writer=host_venues_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='alternate_host_venues',
+                                         rows=alt_venues_rows,
+                                         csv_writer=alternate_host_venues_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='authorships', rows=authorship_rows,
+                                         csv_writer=authorships_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='biblio', rows=biblio_rows,
+                                         csv_writer=biblio_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='concepts', rows=concept_rows,
+                                         csv_writer=concepts_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='open_access', rows=oa_rows,
+                                         csv_writer=open_access_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='mesh', rows=mesh_rows,
+                                         csv_writer=mesh_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='referenced_works', rows=refs_rows,
+                                         csv_writer=referenced_works_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='related_works', rows=rels_rows,
+                                         csv_writer=related_works_writer)
+                pbar.update(1)
+
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='abstracts', rows=abstract_rows,
+                                         csv_writer=abstracts_writer)
+                pbar.update(1)
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
@@ -1145,7 +1169,7 @@ def write_to_csv_and_parquet(rows, csv_writer, kind, json_filename: str, debug=F
     df = df[keep_cols]
 
     if kind in DTYPES:
-        df = df.astype(dtype=DTYPES[kind])
+        df = df.astype(dtype=DTYPES[kind], errors='ignore')  # handle pesky dates
 
     if kind == 'works':
         df = (
@@ -1164,15 +1188,17 @@ def write_to_csv_and_parquet(rows, csv_writer, kind, json_filename: str, debug=F
     else:
         kind_ = f'works_{kind}'
     parq_filename = PARQ_DIR / kind_ / (
-                '_'.join(json_filename.parts[-2:]).replace('updated_date=', '').replace('.gz', '')
-                + '.parquet')
+            '_'.join(json_filename.parts[-2:]).replace('updated_date=', '').replace('.gz', '')
+            + '.parquet')
 
     parq_filename.parent.mkdir(exist_ok=True, parents=True)
     if debug:
         print(f'{kind=} {parq_filename=} {len(rows)=:,}')
-        # print(df.head(3))
 
-    df.to_parquet(parq_filename, engine='pyarrow')
+    if not parq_filename.exists():
+        df.to_parquet(parq_filename, engine='pyarrow')
+
+        # print(df.head(3))
     return
 
 
@@ -1191,7 +1217,7 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    files_to_process = 20
+    files_to_process = 50
     # files_to_process = 'all'  # to do everything
     # files_to_process = 5  # or any other number
 
