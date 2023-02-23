@@ -20,7 +20,9 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / 'oct-2022'
+CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / 'dec-2022'
+
+CSV_DIR.mkdir(parents=True, exist_ok=True)
 
 # TODO: save the partially completed work/author IDs to a pickle while processing a file
 # TODO: skip over those IDs on the re-run to prevent repeats
@@ -150,7 +152,7 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works.csv.gz'),
             'columns': [
                 'work_id', 'doi', 'title', 'publication_year', 'publication_date', 'type', 'cited_by_count',
-                'is_retracted', 'is_paratext'
+                'is_retracted', 'is_paratext', 'created_date', 'updated_date'
             ]
         },
         # Satyaki addition: put abstracts in a different CSV, save some space
@@ -285,7 +287,7 @@ def flatten_concepts():
         seen_concept_ids = set()
 
         files = list(glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'concepts', '*', '*.gz')))
-        for jsonl_file_name in tqdm(files, desc='Flatting concepts...', unit=' file'):
+        for jsonl_file_name in tqdm(files, desc='Flattening concepts...', unit=' file'):
             with gzip.open(jsonl_file_name, 'r') as concepts_jsonl:
                 for concept_json in concepts_jsonl:
                     if not concept_json.strip():
@@ -351,11 +353,12 @@ def flatten_venues():
         )
         venues_writer.writeheader()
 
-        ids_writer = csv.DictWriter(ids_csv, fieldnames=csv_files['venues']['ids']['columns'])
+        ids_writer = csv.DictWriter(ids_csv, fieldnames=csv_files['venues']['ids']['columns'], extrasaction='ignore')
         ids_writer.writeheader()
 
         counts_by_year_writer = csv.DictWriter(counts_by_year_csv,
-                                               fieldnames=csv_files['venues']['counts_by_year']['columns'])
+                                               fieldnames=csv_files['venues']['counts_by_year']['columns'],
+                                               extrasaction='ignore')
         counts_by_year_writer.writeheader()
 
         seen_venue_ids = set()
@@ -554,14 +557,18 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
 
         if files_to_process == 'all':
             files_to_process = len(files)
+
         print(f'{files_to_process=}')
 
-        for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening authors...', unit=' file', total=len(files)):
+        for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening authors...', unit=' file',
+                                       total=files_to_process):
             if i > files_to_process:
                 break
 
             with gzip.open(jsonl_file_name, 'r') as authors_jsonl:
                 authors_jsonls = authors_jsonl.readlines()
+
+            authors_rows, ids_rows, counts_by_year_rows, authors_concepts_rows, author_hints_rows = [], [], [], [], []
 
             for author_json in tqdm(authors_jsonls, desc='Parsing JSONs', leave=False, unit=' line', unit_scale=True):
                 if not author_json.strip():
@@ -591,20 +598,23 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                 orcid = orcid.replace('https://orcid.org/', '') if orcid is not None else None
                 author['orcid'] = orcid
 
-                authors_writer.writerow(author)
+                authors_rows.append(author)
+                # authors_writer.writerow(author)
 
                 # ids
                 if author_ids := author.get('ids'):
                     author_ids['author_id'] = author_id
                     author_ids['author_name'] = author_name
-                    ids_writer.writerow(author_ids)
+                    # ids_writer.writerow(author_ids)
+                    ids_rows.append(author_ids)
 
                 # counts_by_year
                 if counts_by_year := author.get('counts_by_year'):
                     for count_by_year in counts_by_year:
                         count_by_year['author_id'] = author_id
                         count_by_year['author_name'] = author_name
-                        counts_by_year_writer.writerow(count_by_year)
+                        counts_by_year_rows.append(count_by_year)
+                        # counts_by_year_writer.writerow(count_by_year)
 
                 # concepts
                 if x_concepts := author.get('x_concepts'):
@@ -614,7 +624,8 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                         x_concept['concept_id'] = convert_openalex_id_to_int(x_concept['id'])
                         x_concept['concept_name'] = x_concept['display_name']
 
-                        authors_concepts_writer.writerow(x_concept)
+                        # authors_concepts_writer.writerow(x_concept)
+                        authors_concepts_rows.append(x_concept)
 
                 # hints
                 author_hints_row = {}
@@ -625,7 +636,15 @@ def flatten_authors(files_to_process: Union[str, int] = 'all'):
                 author_hints_row['cited_by_count'] = author.get('cited_by_count', 0)
                 author_hints_row['most_cited_work'] = author.get('most_cited_work', '')
 
-                authors_hints_writer.writerow(author_hints_row)
+                # authors_hints_writer.writerow(author_hints_row)
+                author_hints_rows.append(author_hints_row)
+
+            ## write all the lines to the CSVs
+            authors_writer.writerows(authors_rows)
+            ids_writer.writerows(ids_rows)
+            counts_by_year_writer.writerows(counts_by_year_rows)
+            authors_concepts_writer.writerows(authors_concepts_rows)
+            authors_hints_writer.writerows(author_hints_rows)
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
@@ -1024,15 +1043,15 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
 
 
 if __name__ == '__main__':
-    # flatten_concepts()  # takes about 30s 2022-05-27,153219969,335685885
+    # flatten_concepts()  # takes about 30s
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    # files_to_process = 2
-    files_to_process = 'all'  # to do everything
+    files_to_process = 50
+    # files_to_process = 'all'  # to do everything
     # files_to_process = 5  # or any other number
 
-    # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
+    flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
-    flatten_authors_hints(files_to_process=files_to_process)
+    # flatten_authors_hints(files_to_process=files_to_process)
     # flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
