@@ -20,9 +20,11 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / 'dec-2022'
-
+MONTH = 'dec-2022'
+CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
+PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
 CSV_DIR.mkdir(parents=True, exist_ok=True)
+PARQ_DIR.mkdir(parents=True, exist_ok=True)
 
 # TODO: save the partially completed work/author IDs to a pickle while processing a file
 # TODO: skip over those IDs on the re-run to prevent repeats
@@ -165,13 +167,13 @@ csv_files = \
         'host_venues': {
             'name': os.path.join(CSV_DIR, 'works_host_venues.csv.gz'),
             'columns': [
-                'work_id', 'venue_id', 'venue_name', 'url', 'is_oa', 'version', 'license'
+                'work_id', 'venue_id', 'venue_name', 'type', 'url', 'is_oa', 'version', 'license'
             ]
         },
         'alternate_host_venues': {
             'name': os.path.join(CSV_DIR, 'works_alternate_host_venues.csv.gz'),
             'columns': [
-                'work_id', 'venue_id', 'venue_name', 'url', 'is_oa', 'version', 'license'
+                'work_id', 'venue_id', 'venue_name', 'type', 'url', 'is_oa', 'version', 'license'
             ]
         },
         'authorships': {
@@ -869,8 +871,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
             files_to_process = len(files)
         print(f'{files_to_process=}')
 
-        work_rows, id_rows, host_venue_rows, alt_venues_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
-        concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
+
 
         for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=files_to_process,
                                        unit=' files'):
@@ -879,6 +880,9 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
 
             with gzip.open(jsonl_file_name, 'r') as works_jsonl:
                 works_jsonls = works_jsonl.readlines()
+
+            work_rows, id_rows, host_venue_rows, alt_venues_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
+            concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
 
             for work_json in tqdm(works_jsonls, desc='Parsing JSONs', leave=False, unit=' line', unit_scale=True):
                 if not work_json.strip():
@@ -913,6 +917,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                             'work_id': work_id,
                             'venue_id': host_venue_id,
                             'venue_name': host_venue.get('display_name'),
+                            'type': host_venue.get('type'),
                             'url': host_venue.get('url'),
                             'is_oa': host_venue.get('is_oa'),
                             'version': host_venue.get('version'),
@@ -929,6 +934,7 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                                 'work_id': work_id,
                                 'venue_id': venue_id,
                                 'venue_name': alternate_host_venue.get('display_name'),
+                                'type': alternate_host_venue.get('type'),
                                 'url': alternate_host_venue.get('url'),
                                 'is_oa': alternate_host_venue.get('is_oa'),
                                 'version': alternate_host_venue.get('version'),
@@ -1040,22 +1046,133 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
                     # abstracts_writer.writerow(abstract_row)
 
             # write the batched CSVs here
-            works_writer.writerows(work_rows)
-            ids_writer.writerows(id_rows)
-            host_venues_writer.writerows(host_venue_rows)
-            alternate_host_venues_writer.writerows(alt_venues_rows)
-            authorships_writer.writerows(authorship_rows)
-            biblio_writer.writerows(biblio_rows)
-            concepts_writer.writerows(concept_rows)
-            mesh_writer.writerows(mesh_rows)
-            open_access_writer.writerows(oa_rows)
-            referenced_works_writer.writerows(refs_rows)
-            related_works_writer.writerows(rels_rows)
-            abstracts_writer.writerows(abstract_rows)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='works', rows=work_rows,
+                                     csv_writer=works_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='ids', rows=id_rows, csv_writer=ids_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='host_venues', rows=host_venue_rows,
+                                     csv_writer=host_venues_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='alternate_host_venues', rows=alt_venues_rows,
+                                     csv_writer=alternate_host_venues_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='authorships', rows=authorship_rows,
+                                     csv_writer=authorships_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='biblio', rows=biblio_rows,
+                                     csv_writer=biblio_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='concepts', rows=concept_rows,
+                                     csv_writer=concepts_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='open_access', rows=oa_rows,
+                                     csv_writer=open_access_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='mesh', rows=mesh_rows,
+                                     csv_writer=mesh_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='referenced_works', rows=refs_rows,
+                                     csv_writer=referenced_works_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='related_works', rows=rels_rows,
+                                     csv_writer=related_works_writer)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind='abstracts', rows=abstract_rows,
+                                     csv_writer=abstracts_writer)
 
             finished_files.add(str(jsonl_file_name))
             dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+            # break
 
+    return
+
+
+DTYPES = {
+    'works': dict(work_id='int64', doi='string', title='string', publication_year='Int16',
+                  publication_date='datetime64[ns]',
+                  type='category', cited_by_count='uint32', is_retracted='string', is_paratext='string',
+                  created_date='datetime64[ns]', updated_date='datetime64[ns]'),
+    'authorships': dict(
+        work_id='int64', author_position='category', author_id='Int64', author_name='string',
+        institution_id='Int64', institution_name='string', raw_affiliation_string='string',
+        publication_year='Int16'),
+    'host_venues': dict(
+        work_id='int64', venue_id='Int64', venue_name='string', type='category', url='string', is_oa=float,
+        version='string',
+        license='string',
+    ),
+    'alternate_host_venues': dict(
+        work_id='int64', venue_id='Int64', venue_name='string', type='category', url='string', is_oa=float,
+        version='string',
+        license='string'
+    ),
+    'referenced_works': dict(
+        work_id='int64', referenced_work_id='int64'
+    ),
+    'related_works': dict(
+        work_id='int64', related_work_id='int64'
+    ),
+    'concepts': dict(
+        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
+        score=float
+    ),
+    'abstract': dict(
+        work_id='int64', publication_year='Int16', title='string', abstract='string',
+    ),
+    'ids': dict(
+        work_id='int64', openalex='string', doi='string', mag='Int64', pmid='string', pmcid='string'
+    ),
+    'biblio': dict(
+        work_id='int64', volume='string', issue='string', first_page='string', last_page='string',
+    )
+}
+
+
+def write_to_csv_and_parquet(rows, csv_writer, kind, json_filename: str, debug=False):
+    """
+    Write rows to the CSV using the CSV writer
+    Also create a new file inside the respective parquet directory
+    :param rows: list of rows
+    :param csv_writer:
+    :param kind:
+    :param json_filename:
+    :return:
+    """
+    if len(rows) == 0:
+        return
+
+    csv_writer.writerows(rows)
+    keep_cols = csv_files['works'][kind]['columns']
+
+    df = (
+        pd.DataFrame(rows)
+    )
+    missing_cols = [col for col in keep_cols if col not in df.columns.tolist()]
+
+    for missing_col in missing_cols:
+        df.loc[:, missing_col] = pd.NA
+
+    df = df[keep_cols]
+
+    if kind in DTYPES:
+        df = df.astype(dtype=DTYPES[kind])
+
+    if kind == 'works':
+        df = (
+            df
+            .assign(publication_date=lambda df_: pd.to_datetime(df_.publication_date, format='%Y-%m-%d',
+                                                                errors='coerce', infer_datetime_format=True))
+        )
+        df.set_index('work_id', inplace=True)
+        df.sort_index(inplace=True)
+
+    if isinstance(json_filename, str):
+        json_filename = Path(json_filename)
+
+    if kind == 'works':
+        kind_ = 'works'
+    else:
+        kind_ = f'works_{kind}'
+    parq_filename = PARQ_DIR / kind_ / (
+                '_'.join(json_filename.parts[-2:]).replace('updated_date=', '').replace('.gz', '')
+                + '.parquet')
+
+    parq_filename.parent.mkdir(exist_ok=True, parents=True)
+    if debug:
+        print(f'{kind=} {parq_filename=} {len(rows)=:,}')
+        # print(df.head(3))
+
+    df.to_parquet(parq_filename, engine='pyarrow')
     return
 
 
@@ -1074,7 +1191,7 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    files_to_process = 2
+    files_to_process = 20
     # files_to_process = 'all'  # to do everything
     # files_to_process = 5  # or any other number
 
