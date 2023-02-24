@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import orjson  # faster JSON library
 import pandas as pd
@@ -168,6 +168,18 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works_host_venues.csv.gz'),
             'columns': [
                 'work_id', 'venue_id', 'venue_name', 'type', 'url', 'is_oa', 'version', 'license'
+            ]
+        },
+        'primary_location': {
+            'name': os.path.join(CSV_DIR, 'works_primary_location.csv.gz'),
+            'columns': [
+                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'is_oa',
+            ]
+        },
+        'locations': {
+            'name': os.path.join(CSV_DIR, 'works_locations.csv.gz'),
+            'columns': [
+                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'is_oa',
             ]
         },
         'alternate_host_venues': {
@@ -820,7 +832,7 @@ def flatten_authors_hints(files_to_process: Union[str, int] = 'all'):
     return
 
 
-def flatten_works(files_to_process: Union[str, int] = 'all'):
+def flatten_works(files_to_process: Union[str, int] = 'all', write_csvs: bool = True):
     skip_ids = get_skip_ids('works')
 
     file_spec = csv_files['works']
@@ -1101,24 +1113,247 @@ def flatten_works(files_to_process: Union[str, int] = 'all'):
     return
 
 
+def flatten_works_v2(files_to_process: Union[str, int] = 'all'):
+    """
+    New flattening function that only writes Parquets, uses the Sources
+    """
+    skip_ids = get_skip_ids('works')
+
+    finished_files_pickle_path = PARQ_DIR / 'temp' / 'finished_works.pkl'
+    finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
+
+    if finished_files_pickle_path.exists():
+        finished_files = load_pickle(finished_files_pickle_path)  # load the pickle
+        print(f'{len(finished_files)} existing files found!')
+    else:
+        finished_files = set()
+
+    works_manifest = read_manifest(kind='works', snapshot_dir=SNAPSHOT_DIR / 'data')
+    files = [str(entry.filename) for entry in works_manifest.entries]
+    files = [f for f in files if f not in finished_files]
+
+    print(f'This might take a while, like 20 hours..')
+
+    if files_to_process == 'all':
+        files_to_process = len(files)
+    print(f'{files_to_process=}')
+
+    for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=files_to_process,
+                                   unit=' files'):
+        if i >= files_to_process:
+            break
+
+        with gzip.open(jsonl_file_name, 'r') as works_jsonl:
+            works_jsonls = works_jsonl.readlines()
+
+        work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
+        concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
+
+        for work_json in tqdm(works_jsonls, desc='Parsing JSONs...', leave=False, unit=' line', unit_scale=True):
+            if not work_json.strip():
+                continue
+
+            work = orjson.loads(work_json)
+
+            if not (work_id := work.get('id')):
+                continue
+
+            # works
+            work_id = convert_openalex_id_to_int(work_id)
+            if work_id in skip_ids:
+                continue
+
+            work['work_id'] = work_id
+            doi = work['doi']
+            doi = doi.replace('https://doi.org/', '') if doi is not None else None
+            work['doi'] = doi
+
+            if work['title'] is None:
+                title = None
+            else:
+                title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
+            work['title'] = title
+
+            # works_writer.writerow(work)
+            work_rows.append(work)
+
+            # primary location
+            if primary_location := (work.get('primary_location') or {}):
+                if source := primary_location.get('source'):
+                    source_id = convert_openalex_id_to_int(source.get('id'))
+                    primary_location_rows.append({
+                        'work_id': work_id,
+                        'source_id': source_id,
+                        'source_name': source.get('display_name'),
+                        'source_type': source.get('type'),
+                        'version': primary_location.get('version'),
+                        'license': primary_location.get('license'),
+                        'is_oa': primary_location.get('is_oa'),
+                    })
+
+            # locations
+            if locations := work.get('locations'):
+                for location in locations:
+                    if source := location.get('source'):
+                        source_id = convert_openalex_id_to_int(source.get('id'))
+                        location_rows.append({
+                            'work_id': work_id,
+                            'source_id': source_id,
+                            'source_name': source.get('display_name'),
+                            'source_type': source.get('type'),
+                            'version': location.get('version'),
+                            'license': location.get('license'),
+                            'is_oa': location.get('is_oa'),
+                        })
+
+            # authorships
+            if authorships := work.get('authorships'):
+                for authorship in authorships:
+                    if author_id := authorship.get('author', {}).get('id'):
+                        author_id = convert_openalex_id_to_int(author_id)
+                        author_name = authorship.get('author', {}).get('display_name')
+
+                        institutions = authorship.get('institutions')
+                        institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
+                        institution_ids = [i for i in institution_ids if i]
+                        institution_ids = institution_ids or [None]
+
+                        institution_names = [i.get('display_name') for i in institutions]
+                        institution_names = [i for i in institution_names if i]
+                        institution_names = institution_names or [None]
+
+                        for institution_id, institution_name in zip(institution_ids, institution_names):
+                            authorship_rows.append({
+                                # authorships_writer.writerow({
+                                'work_id': work_id,
+                                'author_position': authorship.get('author_position'),
+                                'author_id': author_id,
+                                'author_name': author_name,
+                                'institution_id': institution_id,
+                                'institution_name': institution_name,
+                                'raw_affiliation_string': authorship.get('raw_affiliation_string'),
+                                'publication_year': work.get('publication_year')
+                            })
+
+            # biblio
+            if biblio := work.get('biblio'):
+                biblio['work_id'] = work_id
+                biblio_rows.append(biblio)
+                # biblio_writer.writerow(biblio)
+
+            # concepts
+            for concept in work.get('concepts'):
+                if concept_id := concept.get('id'):
+                    concept_id = convert_openalex_id_to_int(concept_id)
+                    concept_name = concept.get('display_name')
+                    level = concept.get('level')
+
+                    # concepts_writer.writerow({
+                    concept_rows.append({
+                        'work_id': work_id,
+                        'publication_year': work.get('publication_year'),
+                        'concept_id': concept_id,
+                        'concept_name': concept_name,
+                        'level': level,
+                        'score': concept.get('score'),
+                    })
+
+            # ids
+            if ids := work.get('ids'):
+                ids['work_id'] = work_id
+                ids['doi'] = doi
+                id_rows.append(ids)
+                # ids_writer.writerow(ids)
+
+            # mesh
+            for mesh in work.get('mesh'):
+                mesh['work_id'] = work_id
+                mesh_rows.append(mesh)
+                # mesh_writer.writerow(mesh)
+
+            # referenced_works
+            for referenced_work in work.get('referenced_works'):
+                if referenced_work:
+                    referenced_work = convert_openalex_id_to_int(referenced_work)
+                    refs_rows.append({
+                        # referenced_works_writer.writerow({
+                        'work_id': work_id,
+                        'referenced_work_id': referenced_work
+                    })
+
+            # related_works
+            for related_work in work.get('related_works'):
+                if related_work:
+                    related_work = convert_openalex_id_to_int(related_work)
+
+                    # related_works_writer.writerow({
+                    rels_rows.append({
+                        'work_id': work_id,
+                        'related_work_id': related_work
+                    })
+
+            # abstracts
+            if (abstract_inv_index := work.get('abstract_inverted_index')) is not None:
+                try:
+                    abstract = reconstruct_abstract(abstract_inv_index)
+                except orjson.JSONDecodeError as e:
+                    abstract = ''
+
+                abstract_row = {'work_id': work_id, 'title': title, 'abstract': abstract,
+                                'publication_year': work.get('publication_year')}
+                abstract_rows.append(abstract_row)
+                # abstracts_writer.writerow(abstract_row)
+
+        # write the batched parquets here
+        kinds = ['works', 'ids', 'primary_locations', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
+                 'referenced_works', 'related_works', 'abstracts']
+        row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
+                     concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows]
+
+        with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
+            for kind, rows in zip(kinds, row_names):
+                pbar.set_postfix_str(kind)
+                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind=kind, rows=rows)
+                pbar.update(1)
+
+        finished_files.add(str(jsonl_file_name))
+        dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+        # break
+
+    return
+
+
+STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
+
+if STRING_DTYPE == 'string[pyarrow]':
+    assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
+
 DTYPES = {
-    'works': dict(work_id='int64', doi='string', title='string', publication_year='Int16',
+    'works': dict(work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
                   publication_date='datetime64[ns]',
-                  type='category', cited_by_count='uint32', is_retracted='string', is_paratext='string',
+                  type='category', cited_by_count='uint32', is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
                   created_date='datetime64[ns]', updated_date='datetime64[ns]'),
     'authorships': dict(
-        work_id='int64', author_position='category', author_id='Int64', author_name='string',
-        institution_id='Int64', institution_name='string', raw_affiliation_string='string',
+        work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
+        institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
         publication_year='Int16'),
     'host_venues': dict(
-        work_id='int64', venue_id='Int64', venue_name='string', type='category', url='string', is_oa=float,
-        version='string',
-        license='string',
+        work_id='int64', venue_id='Int64', venue_name=STRING_DTYPE, type='category', url=STRING_DTYPE, is_oa=float,
+        version=STRING_DTYPE,
+        license=STRING_DTYPE,
     ),
     'alternate_host_venues': dict(
-        work_id='int64', venue_id='Int64', venue_name='string', type='category', url='string', is_oa=float,
-        version='string',
-        license='string'
+        work_id='int64', venue_id='Int64', venue_name=STRING_DTYPE, type='category', url=STRING_DTYPE, is_oa=float,
+        version=STRING_DTYPE,
+        license=STRING_DTYPE
+    ),
+    'primary_location': dict(
+        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
+        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+    ),
+    'locations': dict(
+        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
+        license=STRING_DTYPE, is_oa=STRING_DTYPE,
     ),
     'referenced_works': dict(
         work_id='int64', referenced_work_id='int64'
@@ -1131,31 +1366,43 @@ DTYPES = {
         score=float
     ),
     'abstract': dict(
-        work_id='int64', publication_year='Int16', title='string', abstract='string',
+        work_id='int64', publication_year='Int16', title=STRING_DTYPE, abstract=STRING_DTYPE,
     ),
     'ids': dict(
-        work_id='int64', openalex='string', doi='string', mag='Int64', pmid='string', pmcid='string'
+        work_id='int64', openalex=STRING_DTYPE, doi=STRING_DTYPE, mag='Int64', pmid=STRING_DTYPE, pmcid=STRING_DTYPE
     ),
     'biblio': dict(
-        work_id='int64', volume='string', issue='string', first_page='string', last_page='string',
+        work_id='int64', volume=STRING_DTYPE, issue=STRING_DTYPE, first_page=STRING_DTYPE, last_page=STRING_DTYPE,
     )
 }
 
 
-def write_to_csv_and_parquet(rows, csv_writer, kind, json_filename: str, debug=False):
+def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: bool = False,
+                             csv_writer: Optional[csv.DictWriter] = None):
     """
     Write rows to the CSV using the CSV writer
     Also create a new file inside the respective parquet directory
-    :param rows: list of rows
-    :param csv_writer:
-    :param kind:
-    :param json_filename:
-    :return:
     """
     if len(rows) == 0:
         return
 
-    csv_writer.writerows(rows)
+    if csv_writer is not None:
+        csv_writer.writerows(rows)
+
+    json_filename = Path(json_filename)
+
+    kind_ = f'works_{kind}' if kind != 'works' else 'works'
+    parq_filename = PARQ_DIR / kind_ / (
+            '_'.join(json_filename.parts[-2:]).replace('updated_date=', '').replace('.gz', '')
+            + '.parquet')
+
+    if parq_filename.exists():
+        print(f'Parquet already exists {str(parq_filename.parts[-2:])}')
+        return
+    # parq_filename.parent.mkdir(exist_ok=True, parents=True)
+    if debug:
+        print(f'{kind=} {parq_filename=} {len(rows)=:,}')
+
     keep_cols = csv_files['works'][kind]['columns']
 
     df = (
@@ -1172,33 +1419,10 @@ def write_to_csv_and_parquet(rows, csv_writer, kind, json_filename: str, debug=F
         df = df.astype(dtype=DTYPES[kind], errors='ignore')  # handle pesky dates
 
     if kind == 'works':
-        df = (
-            df
-            .assign(publication_date=lambda df_: pd.to_datetime(df_.publication_date, format='%Y-%m-%d',
-                                                                errors='coerce', infer_datetime_format=True))
-        )
         df.set_index('work_id', inplace=True)
         df.sort_index(inplace=True)
 
-    if isinstance(json_filename, str):
-        json_filename = Path(json_filename)
-
-    if kind == 'works':
-        kind_ = 'works'
-    else:
-        kind_ = f'works_{kind}'
-    parq_filename = PARQ_DIR / kind_ / (
-            '_'.join(json_filename.parts[-2:]).replace('updated_date=', '').replace('.gz', '')
-            + '.parquet')
-
-    parq_filename.parent.mkdir(exist_ok=True, parents=True)
-    if debug:
-        print(f'{kind=} {parq_filename=} {len(rows)=:,}')
-
-    if not parq_filename.exists():
-        df.to_parquet(parq_filename, engine='pyarrow')
-
-        # print(df.head(3))
+    df.to_parquet(parq_filename, engine='pyarrow')
     return
 
 
@@ -1217,8 +1441,8 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    files_to_process = 50
-    # files_to_process = 'all'  # to do everything
+    # files_to_process = 50
+    files_to_process = 'all'  # to do everything
     # files_to_process = 5  # or any other number
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
