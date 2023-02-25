@@ -155,6 +155,7 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works.csv.gz'),
             'columns': [
                 'work_id', 'doi', 'title', 'publication_year', 'publication_date', 'type', 'cited_by_count',
+                'num_authors',
                 'is_retracted', 'is_paratext', 'created_date', 'updated_date'
             ]
         },
@@ -1124,7 +1125,9 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
     work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
     concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
 
-    for work_json in tqdm(works_jsonls, desc='Parsing JSONs...', unit=' line', unit_scale=True, colour='blue'):
+    for work_json in tqdm(works_jsonls, desc=f'Parsing JSONs... {str(Path(jsonl_file_name).parts[-2:])}', unit=' line',
+                          unit_scale=True, colour='blue',
+                          leave=False):
         if not work_json.strip():
             continue
 
@@ -1138,6 +1141,8 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
         if work_id in skip_ids:
             continue
 
+        num_authors = 0
+
         work['work_id'] = work_id
         doi = work['doi']
         doi = doi.replace('https://doi.org/', '') if doi is not None else None
@@ -1149,7 +1154,38 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
             title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
         work['title'] = title
 
+        # authorships
+        if authorships := work.get('authorships'):
+            for authorship in authorships:
+                if author_id := authorship.get('author', {}).get('id'):
+                    num_authors += 1  # increase the count of authors
+                    author_id = convert_openalex_id_to_int(author_id)
+                    author_name = authorship.get('author', {}).get('display_name')
+
+                    institutions = authorship.get('institutions')
+                    institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
+                    institution_ids = [i for i in institution_ids if i]
+                    institution_ids = institution_ids or [None]
+
+                    institution_names = [i.get('display_name') for i in institutions]
+                    institution_names = [i for i in institution_names if i]
+                    institution_names = institution_names or [None]
+
+                    for institution_id, institution_name in zip(institution_ids, institution_names):
+                        authorship_rows.append({
+                            # authorships_writer.writerow({
+                            'work_id': work_id,
+                            'author_position': authorship.get('author_position'),
+                            'author_id': author_id,
+                            'author_name': author_name,
+                            'institution_id': institution_id,
+                            'institution_name': institution_name,
+                            'raw_affiliation_string': authorship.get('raw_affiliation_string'),
+                            'publication_year': work.get('publication_year')
+                        })
+
         # works_writer.writerow(work)
+        work['num_authors'] = num_authors
         work_rows.append(work)
 
         # primary location
@@ -1181,34 +1217,6 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
                         'is_oa': location.get('is_oa'),
                     })
 
-        # authorships
-        if authorships := work.get('authorships'):
-            for authorship in authorships:
-                if author_id := authorship.get('author', {}).get('id'):
-                    author_id = convert_openalex_id_to_int(author_id)
-                    author_name = authorship.get('author', {}).get('display_name')
-
-                    institutions = authorship.get('institutions')
-                    institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
-                    institution_ids = [i for i in institution_ids if i]
-                    institution_ids = institution_ids or [None]
-
-                    institution_names = [i.get('display_name') for i in institutions]
-                    institution_names = [i for i in institution_names if i]
-                    institution_names = institution_names or [None]
-
-                    for institution_id, institution_name in zip(institution_ids, institution_names):
-                        authorship_rows.append({
-                            # authorships_writer.writerow({
-                            'work_id': work_id,
-                            'author_position': authorship.get('author_position'),
-                            'author_id': author_id,
-                            'author_name': author_name,
-                            'institution_id': institution_id,
-                            'institution_name': institution_name,
-                            'raw_affiliation_string': authorship.get('raw_affiliation_string'),
-                            'publication_year': work.get('publication_year')
-                        })
 
         # biblio
         if biblio := work.get('biblio'):
@@ -1359,7 +1367,8 @@ if STRING_DTYPE == 'string[pyarrow]':
 DTYPES = {
     'works': dict(work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
                   publication_date=STRING_DTYPE,
-                  type=STRING_DTYPE, cited_by_count='uint32', is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
+                  type=STRING_DTYPE, cited_by_count='uint32', num_authors='uint16',
+                  is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
                   created_date=STRING_DTYPE, updated_date=STRING_DTYPE),
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
