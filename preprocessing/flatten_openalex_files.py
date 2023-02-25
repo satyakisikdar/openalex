@@ -20,7 +20,7 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'dec-2022'
+MONTH = 'feb-2023'
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
 CSV_DIR.mkdir(parents=True, exist_ok=True)
@@ -1119,6 +1119,17 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all'):
     """
     skip_ids = get_skip_ids('works')
 
+    kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
+             'referenced_works', 'related_works', 'abstracts']
+    for kind in kinds:
+        # ensure directories exist
+        if kind != 'works':
+            kind = f'works_{kind}'
+        path = (PARQ_DIR / kind)
+        if not path.exists():
+            print(f'Creating dir at {str(path)}')
+            path.mkdir(parents=True)
+
     finished_files_pickle_path = PARQ_DIR / 'temp' / 'finished_works.pkl'
     finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
 
@@ -1305,7 +1316,7 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all'):
                 # abstracts_writer.writerow(abstract_row)
 
         # write the batched parquets here
-        kinds = ['works', 'ids', 'primary_locations', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
+        kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
                  'referenced_works', 'related_works', 'abstracts']
         row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
                      concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows]
@@ -1330,9 +1341,9 @@ if STRING_DTYPE == 'string[pyarrow]':
 
 DTYPES = {
     'works': dict(work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
-                  publication_date='datetime64[ns]',
+                  publication_date=STRING_DTYPE,
                   type='category', cited_by_count='uint32', is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
-                  created_date='datetime64[ns]', updated_date='datetime64[ns]'),
+                  created_date=STRING_DTYPE, updated_date=STRING_DTYPE),
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
         institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
@@ -1419,10 +1430,21 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         df = df.astype(dtype=DTYPES[kind], errors='ignore')  # handle pesky dates
 
     if kind == 'works':
+        df = (
+            df
+            .assign(
+                publication_date=lambda df_: pd.to_datetime(df_.publication_date, errors='coerce',
+                                                            infer_datetime_format=True),
+                created_date=lambda df_: pd.to_datetime(df_.created_date, errors='coerce',
+                                                        infer_datetime_format=True),
+                updated_date=lambda df_: pd.to_datetime(df_.updated_date, errors='coerce',
+                                                        infer_datetime_format=True),
+            )
+        )
         df.set_index('work_id', inplace=True)
         df.sort_index(inplace=True)
 
-    df.to_parquet(parq_filename, engine='pyarrow')
+    df.to_parquet(parq_filename, engine='pyarrow', coerce_timestamps='ms', allow_truncated_timestamps=True)
     return
 
 
@@ -1443,9 +1465,9 @@ if __name__ == '__main__':
 
     # files_to_process = 50
     files_to_process = 'all'  # to do everything
-    # files_to_process = 5  # or any other number
+    # files_to_process = 100  # or any other number
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
-    flatten_works(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
+    flatten_works_v2(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
