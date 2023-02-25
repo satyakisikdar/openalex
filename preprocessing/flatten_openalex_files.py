@@ -16,7 +16,8 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
-from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest
+from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest, \
+    parallel_async
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
@@ -1113,7 +1114,189 @@ def flatten_works(files_to_process: Union[str, int] = 'all', write_csvs: bool = 
     return
 
 
-def flatten_works_v2(files_to_process: Union[str, int] = 'all'):
+def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_pickle_path):
+    """
+    Process each work JSON lines file in parallel
+    """
+    with gzip.open(jsonl_file_name, 'r') as works_jsonl:
+        works_jsonls = works_jsonl.readlines()
+
+    work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
+    concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
+
+    for work_json in tqdm(works_jsonls, desc='Parsing JSONs...', unit=' line', unit_scale=True, colour='blue'):
+        if not work_json.strip():
+            continue
+
+        work = orjson.loads(work_json)
+
+        if not (work_id := work.get('id')):
+            continue
+
+        # works
+        work_id = convert_openalex_id_to_int(work_id)
+        if work_id in skip_ids:
+            continue
+
+        work['work_id'] = work_id
+        doi = work['doi']
+        doi = doi.replace('https://doi.org/', '') if doi is not None else None
+        work['doi'] = doi
+
+        if work['title'] is None:
+            title = None
+        else:
+            title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
+        work['title'] = title
+
+        # works_writer.writerow(work)
+        work_rows.append(work)
+
+        # primary location
+        if primary_location := (work.get('primary_location') or {}):
+            if source := primary_location.get('source'):
+                source_id = convert_openalex_id_to_int(source.get('id'))
+                primary_location_rows.append({
+                    'work_id': work_id,
+                    'source_id': source_id,
+                    'source_name': source.get('display_name'),
+                    'source_type': source.get('type'),
+                    'version': primary_location.get('version'),
+                    'license': primary_location.get('license'),
+                    'is_oa': primary_location.get('is_oa'),
+                })
+
+        # locations
+        if locations := work.get('locations'):
+            for location in locations:
+                if source := location.get('source'):
+                    source_id = convert_openalex_id_to_int(source.get('id'))
+                    location_rows.append({
+                        'work_id': work_id,
+                        'source_id': source_id,
+                        'source_name': source.get('display_name'),
+                        'source_type': source.get('type'),
+                        'version': location.get('version'),
+                        'license': location.get('license'),
+                        'is_oa': location.get('is_oa'),
+                    })
+
+        # authorships
+        if authorships := work.get('authorships'):
+            for authorship in authorships:
+                if author_id := authorship.get('author', {}).get('id'):
+                    author_id = convert_openalex_id_to_int(author_id)
+                    author_name = authorship.get('author', {}).get('display_name')
+
+                    institutions = authorship.get('institutions')
+                    institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
+                    institution_ids = [i for i in institution_ids if i]
+                    institution_ids = institution_ids or [None]
+
+                    institution_names = [i.get('display_name') for i in institutions]
+                    institution_names = [i for i in institution_names if i]
+                    institution_names = institution_names or [None]
+
+                    for institution_id, institution_name in zip(institution_ids, institution_names):
+                        authorship_rows.append({
+                            # authorships_writer.writerow({
+                            'work_id': work_id,
+                            'author_position': authorship.get('author_position'),
+                            'author_id': author_id,
+                            'author_name': author_name,
+                            'institution_id': institution_id,
+                            'institution_name': institution_name,
+                            'raw_affiliation_string': authorship.get('raw_affiliation_string'),
+                            'publication_year': work.get('publication_year')
+                        })
+
+        # biblio
+        if biblio := work.get('biblio'):
+            biblio['work_id'] = work_id
+            biblio_rows.append(biblio)
+            # biblio_writer.writerow(biblio)
+
+        # concepts
+        for concept in work.get('concepts'):
+            if concept_id := concept.get('id'):
+                concept_id = convert_openalex_id_to_int(concept_id)
+                concept_name = concept.get('display_name')
+                level = concept.get('level')
+
+                # concepts_writer.writerow({
+                concept_rows.append({
+                    'work_id': work_id,
+                    'publication_year': work.get('publication_year'),
+                    'concept_id': concept_id,
+                    'concept_name': concept_name,
+                    'level': level,
+                    'score': concept.get('score'),
+                })
+
+        # ids
+        if ids := work.get('ids'):
+            ids['work_id'] = work_id
+            ids['doi'] = doi
+            id_rows.append(ids)
+            # ids_writer.writerow(ids)
+
+        # mesh
+        for mesh in work.get('mesh'):
+            mesh['work_id'] = work_id
+            mesh_rows.append(mesh)
+            # mesh_writer.writerow(mesh)
+
+        # referenced_works
+        for referenced_work in work.get('referenced_works'):
+            if referenced_work:
+                referenced_work = convert_openalex_id_to_int(referenced_work)
+                refs_rows.append({
+                    # referenced_works_writer.writerow({
+                    'work_id': work_id,
+                    'referenced_work_id': referenced_work
+                })
+
+        # related_works
+        for related_work in work.get('related_works'):
+            if related_work:
+                related_work = convert_openalex_id_to_int(related_work)
+
+                # related_works_writer.writerow({
+                rels_rows.append({
+                    'work_id': work_id,
+                    'related_work_id': related_work
+                })
+
+        # abstracts
+        if (abstract_inv_index := work.get('abstract_inverted_index')) is not None:
+            try:
+                abstract = reconstruct_abstract(abstract_inv_index)
+            except orjson.JSONDecodeError as e:
+                abstract = ''
+
+            abstract_row = {'work_id': work_id, 'title': title, 'abstract': abstract,
+                            'publication_year': work.get('publication_year')}
+            abstract_rows.append(abstract_row)
+            # abstracts_writer.writerow(abstract_row)
+
+    # write the batched parquets here
+    kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
+             'referenced_works', 'related_works', 'abstracts']
+    row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
+                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows]
+
+    with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
+        for kind, rows in zip(kinds, row_names):
+            pbar.set_postfix_str(kind)
+            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind=kind, rows=rows)
+            pbar.update(1)
+
+    finished_files.add(str(jsonl_file_name))
+    dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+    return
+
+
+def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
     """
     New flattening function that only writes Parquets, uses the Sources
     """
@@ -1149,187 +1332,21 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all'):
         files_to_process = len(files)
     print(f'{files_to_process=}')
 
+    args = []
+
     for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=files_to_process,
                                    unit=' files'):
         if i >= files_to_process:
             break
+        if threads > 1:
+            args.append((skip_ids, jsonl_file_name, finished_files, finished_files_pickle_path))
+        else:
+            process_work_json(skip_ids=skip_ids, jsonl_file_name=jsonl_file_name, finished_files=finished_files,
+                              finished_files_pickle_path=finished_files_pickle_path)
 
-        with gzip.open(jsonl_file_name, 'r') as works_jsonl:
-            works_jsonls = works_jsonl.readlines()
-
-        work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
-        concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
-
-        for work_json in tqdm(works_jsonls, desc='Parsing JSONs...', leave=False, unit=' line', unit_scale=True):
-            if not work_json.strip():
-                continue
-
-            work = orjson.loads(work_json)
-
-            if not (work_id := work.get('id')):
-                continue
-
-            # works
-            work_id = convert_openalex_id_to_int(work_id)
-            if work_id in skip_ids:
-                continue
-
-            work['work_id'] = work_id
-            doi = work['doi']
-            doi = doi.replace('https://doi.org/', '') if doi is not None else None
-            work['doi'] = doi
-
-            if work['title'] is None:
-                title = None
-            else:
-                title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
-            work['title'] = title
-
-            # works_writer.writerow(work)
-            work_rows.append(work)
-
-            # primary location
-            if primary_location := (work.get('primary_location') or {}):
-                if source := primary_location.get('source'):
-                    source_id = convert_openalex_id_to_int(source.get('id'))
-                    primary_location_rows.append({
-                        'work_id': work_id,
-                        'source_id': source_id,
-                        'source_name': source.get('display_name'),
-                        'source_type': source.get('type'),
-                        'version': primary_location.get('version'),
-                        'license': primary_location.get('license'),
-                        'is_oa': primary_location.get('is_oa'),
-                    })
-
-            # locations
-            if locations := work.get('locations'):
-                for location in locations:
-                    if source := location.get('source'):
-                        source_id = convert_openalex_id_to_int(source.get('id'))
-                        location_rows.append({
-                            'work_id': work_id,
-                            'source_id': source_id,
-                            'source_name': source.get('display_name'),
-                            'source_type': source.get('type'),
-                            'version': location.get('version'),
-                            'license': location.get('license'),
-                            'is_oa': location.get('is_oa'),
-                        })
-
-            # authorships
-            if authorships := work.get('authorships'):
-                for authorship in authorships:
-                    if author_id := authorship.get('author', {}).get('id'):
-                        author_id = convert_openalex_id_to_int(author_id)
-                        author_name = authorship.get('author', {}).get('display_name')
-
-                        institutions = authorship.get('institutions')
-                        institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
-                        institution_ids = [i for i in institution_ids if i]
-                        institution_ids = institution_ids or [None]
-
-                        institution_names = [i.get('display_name') for i in institutions]
-                        institution_names = [i for i in institution_names if i]
-                        institution_names = institution_names or [None]
-
-                        for institution_id, institution_name in zip(institution_ids, institution_names):
-                            authorship_rows.append({
-                                # authorships_writer.writerow({
-                                'work_id': work_id,
-                                'author_position': authorship.get('author_position'),
-                                'author_id': author_id,
-                                'author_name': author_name,
-                                'institution_id': institution_id,
-                                'institution_name': institution_name,
-                                'raw_affiliation_string': authorship.get('raw_affiliation_string'),
-                                'publication_year': work.get('publication_year')
-                            })
-
-            # biblio
-            if biblio := work.get('biblio'):
-                biblio['work_id'] = work_id
-                biblio_rows.append(biblio)
-                # biblio_writer.writerow(biblio)
-
-            # concepts
-            for concept in work.get('concepts'):
-                if concept_id := concept.get('id'):
-                    concept_id = convert_openalex_id_to_int(concept_id)
-                    concept_name = concept.get('display_name')
-                    level = concept.get('level')
-
-                    # concepts_writer.writerow({
-                    concept_rows.append({
-                        'work_id': work_id,
-                        'publication_year': work.get('publication_year'),
-                        'concept_id': concept_id,
-                        'concept_name': concept_name,
-                        'level': level,
-                        'score': concept.get('score'),
-                    })
-
-            # ids
-            if ids := work.get('ids'):
-                ids['work_id'] = work_id
-                ids['doi'] = doi
-                id_rows.append(ids)
-                # ids_writer.writerow(ids)
-
-            # mesh
-            for mesh in work.get('mesh'):
-                mesh['work_id'] = work_id
-                mesh_rows.append(mesh)
-                # mesh_writer.writerow(mesh)
-
-            # referenced_works
-            for referenced_work in work.get('referenced_works'):
-                if referenced_work:
-                    referenced_work = convert_openalex_id_to_int(referenced_work)
-                    refs_rows.append({
-                        # referenced_works_writer.writerow({
-                        'work_id': work_id,
-                        'referenced_work_id': referenced_work
-                    })
-
-            # related_works
-            for related_work in work.get('related_works'):
-                if related_work:
-                    related_work = convert_openalex_id_to_int(related_work)
-
-                    # related_works_writer.writerow({
-                    rels_rows.append({
-                        'work_id': work_id,
-                        'related_work_id': related_work
-                    })
-
-            # abstracts
-            if (abstract_inv_index := work.get('abstract_inverted_index')) is not None:
-                try:
-                    abstract = reconstruct_abstract(abstract_inv_index)
-                except orjson.JSONDecodeError as e:
-                    abstract = ''
-
-                abstract_row = {'work_id': work_id, 'title': title, 'abstract': abstract,
-                                'publication_year': work.get('publication_year')}
-                abstract_rows.append(abstract_row)
-                # abstracts_writer.writerow(abstract_row)
-
-        # write the batched parquets here
-        kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
-                 'referenced_works', 'related_works', 'abstracts']
-        row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
-                     concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows]
-
-        with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
-            for kind, rows in zip(kinds, row_names):
-                pbar.set_postfix_str(kind)
-                write_to_csv_and_parquet(json_filename=jsonl_file_name, kind=kind, rows=rows)
-                pbar.update(1)
-
-        finished_files.add(str(jsonl_file_name))
-        dump_pickle(obj=finished_files, path=finished_files_pickle_path)
-        # break
+    if threads > 1:
+        print(f'Spinning up {threads} parallel threads')
+        parallel_async(func=process_work_json, args=args, num_workers=threads)
 
     return
 
@@ -1463,11 +1480,12 @@ if __name__ == '__main__':
     # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
 
-    # files_to_process = 50
+    # files_to_process = 10
     files_to_process = 'all'  # to do everything
     # files_to_process = 100  # or any other number
+    threads = 5
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
-    flatten_works_v2(files_to_process=files_to_process)  # takes about 20 hours  ~6 mins per file
+    flatten_works_v2(files_to_process=files_to_process, threads=threads)  # takes about 20 hours  ~6 mins per file
