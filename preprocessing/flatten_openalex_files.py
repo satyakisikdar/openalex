@@ -1458,6 +1458,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
                                                         infer_datetime_format=True),
             )
         )
+        # don't set the index here
         # df.set_index('work_id', inplace=True)
         # df.sort_values(by='work_id', inplace=True)  # helps with setting the index later
 
