@@ -1359,7 +1359,7 @@ if STRING_DTYPE == 'string[pyarrow]':
 DTYPES = {
     'works': dict(work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
                   publication_date=STRING_DTYPE,
-                  type='category', cited_by_count='uint32', is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
+                  type=STRING_DTYPE, cited_by_count='uint32', is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
                   created_date=STRING_DTYPE, updated_date=STRING_DTYPE),
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
@@ -1458,8 +1458,11 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
                                                         infer_datetime_format=True),
             )
         )
-        df.set_index('work_id', inplace=True)
-        df.sort_index(inplace=True)
+        # df.set_index('work_id', inplace=True)
+        # df.sort_values(by='work_id', inplace=True)  # helps with setting the index later
+
+    elif kind == 'authorships':
+        df.drop_duplicates(inplace=True)  # weird bug causes authorships table to have repeated rows sometimes
 
     df.to_parquet(parq_filename, engine='pyarrow', coerce_timestamps='ms', allow_truncated_timestamps=True)
     return
@@ -1483,7 +1486,7 @@ if __name__ == '__main__':
     # files_to_process = 10
     files_to_process = 'all'  # to do everything
     # files_to_process = 100  # or any other number
-    threads = 5
+    threads = 7
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
