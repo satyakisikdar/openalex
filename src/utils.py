@@ -1,16 +1,19 @@
 import ast
 import pickle
 import unicodedata
+from collections import namedtuple
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 import ujson as json
 from box import Box
-from tqdm import tqdm
 from seaborn._statistics import EstimateAggregator
+from tqdm import tqdm
+
 from src.globals import path_type
 
 
@@ -22,16 +25,26 @@ def conf_interval(data, aggfunc='mean', errorfunc=('ci', 95),
     errorfunc: ('ci', 95), 'sd' (standard dev), 'se' (standard error)
     return_errors: return difference between the means if True, else return the absolute boundaries 
     """
-    agg = EstimateAggregator(aggfunc, errorfunc)
-    df = pd.DataFrame({'y': data})
-    res = agg(df, 'y')
+    data = np.array(data)
+    data = data[~np.isnan(data)]  # remove NaNs
+
+    if len(data) == 0:
+        res = namedtuple('result', 'y ymin ymax')  # to facilitate dot accessors below
+        res.y = np.nan
+        res.ymin = np.nan
+        res.ymax = np.nan
+    else:
+        agg = EstimateAggregator(aggfunc, errorfunc)
+        df = pd.DataFrame({'y': data})
+        res = agg(df, 'y')
+
     result = res.y
     errorfunc_name = aggfunc + '_' + ''.join(map(str, errorfunc))
-    
-    if return_errors:
-        y_error_min, y_error_max =  result - res.ymin, res.ymax - result
 
-        ser = pd.Series({aggfunc: result, 
+    if return_errors:
+        y_error_min, y_error_max = result - res.ymin, res.ymax - result
+
+        ser = pd.Series({aggfunc: result,
                          f'{errorfunc_name}_error_min': y_error_min,
                          f'{errorfunc_name}_error_max': y_error_max})
     else:
