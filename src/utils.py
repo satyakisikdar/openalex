@@ -10,8 +10,35 @@ import requests
 import ujson as json
 from box import Box
 from tqdm import tqdm
-
+from seaborn._statistics import EstimateAggregator
 from src.globals import path_type
+
+
+def conf_interval(data, aggfunc='mean', errorfunc=('ci', 95), 
+                  return_errors=False):
+    """
+    data: set of values, can be a pandas series or numpy array like  
+    aggfunc: function to aggregate: mean/median 
+    errorfunc: ('ci', 95), 'sd' (standard dev), 'se' (standard error)
+    return_errors: return difference between the means if True, else return the absolute boundaries 
+    """
+    agg = EstimateAggregator(aggfunc, errorfunc)
+    df = pd.DataFrame({'y': data})
+    res = agg(df, 'y')
+    result = res.y
+    errorfunc_name = aggfunc + '_' + ''.join(map(str, errorfunc))
+    
+    if return_errors:
+        y_error_min, y_error_max =  result - res.ymin, res.ymax - result
+
+        ser = pd.Series({aggfunc: result, 
+                         f'{errorfunc_name}_error_min': y_error_min,
+                         f'{errorfunc_name}_error_max': y_error_max})
+    else:
+        ser = pd.Series({aggfunc: result,
+                         f'{errorfunc_name}_min': res.ymin,
+                         f'{errorfunc_name}_max': res.ymax})
+    return ser 
 
 
 class Paths:
