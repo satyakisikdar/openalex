@@ -1,4 +1,5 @@
 import ast
+import multiprocessing
 import pickle
 import unicodedata
 from collections import namedtuple
@@ -151,7 +152,7 @@ def read_manifest(kind: str, snapshot_dir) -> Box:
     return data
 
 
-def parallel_async(func, args, num_workers: int):
+def parallel_async(func, args, num_workers=10, timeout=None):
     def update_result(result):
         return result
 
@@ -163,10 +164,15 @@ def parallel_async(func, args, num_workers: int):
             async_promises.append(r)
         for r in async_promises:
             try:
-                r.wait()
-                results.append(r.get())
+                r.wait(timeout=timeout)
+                results.append(r.get(timeout=timeout))
+            except (TimeoutError, multiprocessing.context.TimeoutError) as e:
+                print(f'Timeout after {timeout}s {e=}')
             except Exception as e:
-                results.append(r.get())
+                try:
+                    results.append(r.get(timeout=timeout))
+                except (TimeoutError, multiprocessing.context.TimeoutError) as e:
+                    print(f'Timeout after {timeout}s {e=}')
 
     return results
 
