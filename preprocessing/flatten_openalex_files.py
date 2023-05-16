@@ -162,7 +162,7 @@ csv_files = \
             ]
         },
 
-        'works_grants': {
+        'grants': {
             'name': os.path.join(CSV_DIR, 'works_grants.csv.gz'),
             'columns': [
                 'work_id', 'funder_id', 'funder_name', 'award_id',
@@ -172,7 +172,7 @@ csv_files = \
         'abstracts': {
             'name': os.path.join(CSV_DIR, 'works_abstracts.csv.gz'),
             'columns': [
-                'work_id', 'title', 'publication_year', 'abstract', 'award_id',
+                'work_id', 'title', 'publication_year', 'abstract',
             ]
         },
         'primary_location': {
@@ -1211,8 +1211,9 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
 
     work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
     concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows, grant_rows = [], [], [], [], [], [], []
+    desc = 'Parsing JSONs...' + '/'.join(Path(jsonl_file_name).parts[-2:])
 
-    for work_json in tqdm(works_jsonls, desc=f'Parsing JSONs... {str(Path(jsonl_file_name).parts[-2:])}', unit=' line',
+    for work_json in tqdm(works_jsonls, desc=desc, unit=' line',
                           unit_scale=True, colour='blue',
                           leave=False):
         if not work_json.strip():
@@ -1471,7 +1472,7 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
     print(f'{files_to_process=}')
 
     args = []
-
+    total_works_count = 0
     with tqdm(desc='Flattening works...', total=files_to_process, unit=' files') as pbar:
         for i, jsonl_file_name in enumerate(files):
             if i >= files_to_process:
@@ -1482,8 +1483,9 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
                 records = process_work_json(skip_ids=skip_ids, jsonl_file_name=jsonl_file_name,
                                             finished_files=finished_files,
                                             finished_files_pickle_path=finished_files_pickle_path)
+                total_works_count += records
                 pbar.update(1)
-                pbar.set_postfix_str(f'{records:,} works')
+                pbar.set_postfix_str(f'{total_works_count:,} works')
 
     if threads > 1:
         print(f'Spinning up {threads} parallel threads')
@@ -1501,7 +1503,7 @@ DTYPES = {
     'works': dict(
         work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
         publication_date=STRING_DTYPE,
-        type=STRING_DTYPE, cited_by_count='uint32', num_authors='uint16',
+        type='category', cited_by_count='uint32', num_authors='uint16',
         language=STRING_DTYPE, has_grant_info=bool,
         is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
         created_date=STRING_DTYPE, updated_date=STRING_DTYPE,
@@ -1511,7 +1513,7 @@ DTYPES = {
         institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
         publication_year='Int16', is_corresponding=STRING_DTYPE,
     ),
-    'works_grants': dict(
+    'grants': dict(
         work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
     ),
     'primary_location': dict(
@@ -1564,7 +1566,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
             + '.parquet')
 
     if parq_filename.exists():
-        print(f'Parquet already exists {str(parq_filename.parts[-2:])}')
+        # print(f'Parquet already exists {str(parq_filename.parts[-2:])}')
         return
     # parq_filename.parent.mkdir(exist_ok=True, parents=True)
     if debug:
@@ -1596,7 +1598,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         )
         # don't set the index here
         # df.set_index('work_id', inplace=True)
-        df.sort_values(by='work_id', inplace=True)  # helps with setting the index later
+        # df.sort_values(by='work_id', inplace=True)  # helps with setting the index later
 
     elif kind == 'authorships':
         df.drop_duplicates(inplace=True)  # weird bug causes authorships table to have repeated rows sometimes
@@ -1624,12 +1626,10 @@ if __name__ == '__main__':
     # flatten_institutions()  # takes about 20s
     # flatten_publishers()
     # flatten_sources()
-
-    files_to_process = 15
-    # files_to_process = 'all'  # to do everything
+    files_to_process = 'all'  # to do everything
     # files_to_process = 100  # or any other number
-    threads = 1
-    # threads = 7
+    # threads = 1
+    threads = 9
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
