@@ -1,6 +1,6 @@
 """
 Flatten Openalex JSON line files into individual CSVs.
-Original script at https://gist.github.com/richard-orr/152d828356a7c47ed7e3e22d2253708d
+Original script at https://github.com/ourresearch/openalex-documentation-scripts/blob/main/flatten-openalex-jsonl.py
 """
 import csv
 import glob
@@ -21,11 +21,13 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'feb-2023'
+MONTH = 'may-2023'
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
 CSV_DIR.mkdir(parents=True, exist_ok=True)
 PARQ_DIR.mkdir(parents=True, exist_ok=True)
+
+FILES_PER_ENTITY = int(os.environ.get('OPENALEX_DEMO_FILES_PER_ENTITY', '0'))
 
 # TODO: save the partially completed work/author IDs to a pickle while processing a file
 # TODO: skip over those IDs on the re-run to prevent repeats
@@ -64,7 +66,7 @@ csv_files = \
         'counts_by_year': {
             'name': os.path.join(CSV_DIR, 'institutions_counts_by_year.csv.gz'),
             'columns': [
-                'institution_id', 'institution_name', 'year', 'works_count', 'cited_by_count'
+                'institution_id', 'institution_name', 'year', 'works_count', 'oa_works_count', 'cited_by_count',
             ]
         }
     },
@@ -108,8 +110,8 @@ csv_files = \
         'concepts': {
             'name': os.path.join(CSV_DIR, 'concepts.csv.gz'),
             'columns': [
-                'concept_id', 'concept_name', 'wikidata', 'level', 'description', 'works_count', 'cited_by_count',
-                'updated_date'
+                'concept_id', 'concept_name', 'wikidata', 'level', 'description', 'works_count',
+                'cited_by_count', 'updated_date'
             ]
         },
         'ancestors': {
@@ -118,7 +120,7 @@ csv_files = \
         },
         'counts_by_year': {
             'name': os.path.join(CSV_DIR, 'concepts_counts_by_year.csv.gz'),
-            'columns': ['concept_id', 'concept_name', 'year', 'works_count', 'cited_by_count']
+            'columns': ['concept_id', 'concept_name', 'year', 'works_count', 'cited_by_count', 'oa_works_count', ]
         },
         'ids': {
             'name': os.path.join(CSV_DIR, 'concepts_ids.csv.gz'),
@@ -155,21 +157,22 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works.csv.gz'),
             'columns': [
                 'work_id', 'doi', 'title', 'publication_year', 'publication_date', 'type', 'cited_by_count',
-                'num_authors',
+                'num_authors', 'language', 'has_grant_info',
                 'is_retracted', 'is_paratext', 'created_date', 'updated_date'
+            ]
+        },
+
+        'works_grants': {
+            'name': os.path.join(CSV_DIR, 'works_grants.csv.gz'),
+            'columns': [
+                'work_id', 'funder_id', 'funder_name', 'award_id',
             ]
         },
         # Satyaki addition: put abstracts in a different CSV, save some space
         'abstracts': {
             'name': os.path.join(CSV_DIR, 'works_abstracts.csv.gz'),
             'columns': [
-                'work_id', 'title', 'publication_year', 'abstract',
-            ]
-        },
-        'host_venues': {
-            'name': os.path.join(CSV_DIR, 'works_host_venues.csv.gz'),
-            'columns': [
-                'work_id', 'venue_id', 'venue_name', 'type', 'url', 'is_oa', 'version', 'license'
+                'work_id', 'title', 'publication_year', 'abstract', 'award_id',
             ]
         },
         'primary_location': {
@@ -184,17 +187,11 @@ csv_files = \
                 'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'is_oa',
             ]
         },
-        'alternate_host_venues': {
-            'name': os.path.join(CSV_DIR, 'works_alternate_host_venues.csv.gz'),
-            'columns': [
-                'work_id', 'venue_id', 'venue_name', 'type', 'url', 'is_oa', 'version', 'license'
-            ]
-        },
         'authorships': {
             'name': os.path.join(CSV_DIR, 'works_authorships.csv.gz'),
             'columns': [
                 'work_id', 'author_position', 'author_id', 'author_name', 'institution_id',
-                'institution_name', 'raw_affiliation_string', 'publication_year'
+                'institution_name', 'raw_affiliation_string', 'publication_year', 'is_corresponding',
             ]
         },
         'biblio': {
@@ -240,6 +237,42 @@ csv_files = \
             ]
         },
     },
+        'publishers': {
+            'publishers': {
+                'name': os.path.join(CSV_DIR, 'publishers.csv.gz'),
+                'columns': [
+                    'publisher_id', 'publisher_name', 'alternate_titles', 'country_codes', 'hierarchy_level',
+                    'parent_publisher',
+                    'works_count', 'cited_by_count', 'sources_api_url', 'updated_date'
+                ]
+            },
+            'counts_by_year': {
+                'name': os.path.join(CSV_DIR, 'publishers_counts_by_year.csv.gz'),
+                'columns': ['publisher_id', 'publisher_name', 'year', 'works_count', 'cited_by_count',
+                            'oa_works_count'],
+            },
+            'ids': {
+                'name': os.path.join(CSV_DIR, 'publishers_ids.csv.gz'),
+                'columns': ['publisher_id', 'publisher_name', 'openalex', 'ror', 'wikidata']
+            },
+        },
+        'sources': {
+            'sources': {
+                'name': os.path.join(CSV_DIR, 'sources.csv.gz'),
+                'columns': [
+                    'source_id', 'source_name', 'issn_l', 'issn', 'publisher', 'works_count', 'cited_by_count', 'is_oa',
+                    'is_in_doaj', 'homepage_url', 'works_api_url', 'updated_date'
+                ]
+            },
+            'ids': {
+                'name': os.path.join(CSV_DIR, 'sources_ids.csv.gz'),
+                'columns': ['source_id', 'source_name', 'openalex', 'issn_l', 'issn', 'mag', 'wikidata', 'fatcat']
+            },
+            'counts_by_year': {
+                'name': os.path.join(CSV_DIR, 'sources_counts_by_year.csv.gz'),
+                'columns': ['source_id', 'source_name', 'year', 'works_count', 'cited_by_count', 'oa_works_count']
+            },
+        },
     }
 
 
@@ -268,6 +301,121 @@ def get_skip_ids(kind):
         skip_ids = set()
 
     return skip_ids
+
+
+def flatten_publishers():
+    with gzip.open(csv_files['publishers']['publishers']['name'], 'wt', encoding='utf-8') as publishers_csv, \
+            gzip.open(csv_files['publishers']['counts_by_year']['name'], 'wt', encoding='utf-8') as counts_by_year_csv, \
+            gzip.open(csv_files['publishers']['ids']['name'], 'wt', encoding='utf-8') as ids_csv:
+
+        publishers_writer = csv.DictWriter(
+            publishers_csv, fieldnames=csv_files['publishers']['publishers']['columns'], extrasaction='ignore'
+        )
+        publishers_writer.writeheader()
+
+        counts_by_year_writer = csv.DictWriter(counts_by_year_csv,
+                                               fieldnames=csv_files['publishers']['counts_by_year']['columns'])
+        counts_by_year_writer.writeheader()
+
+        ids_writer = csv.DictWriter(ids_csv, fieldnames=csv_files['publishers']['ids']['columns'])
+        ids_writer.writeheader()
+
+        seen_publisher_ids = set()
+
+        files_done = 0
+        for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'publishers', '*', '*.gz')):
+            print(jsonl_file_name)
+            with gzip.open(jsonl_file_name, 'r') as concepts_jsonl:
+                for publisher_json in concepts_jsonl:
+                    if not publisher_json.strip():
+                        continue
+
+                    publisher = json.loads(publisher_json)
+
+                    if not (publisher_id := publisher.get('id')) or publisher_id in seen_publisher_ids:
+                        continue
+
+                    publisher_id = convert_openalex_id_to_int(publisher_id)
+                    publisher['publisher_id'] = publisher_id
+                    publisher['publisher_name'] = publisher['display_name']
+                    seen_publisher_ids.add(publisher_id)
+
+                    # publishers
+                    publisher['alternate_titles'] = json.dumps(publisher.get('alternate_titles'), ensure_ascii=False)
+                    publisher['country_codes'] = json.dumps(publisher.get('country_codes'), ensure_ascii=False)
+                    publishers_writer.writerow(publisher)
+
+                    if publisher_ids := publisher.get('ids'):
+                        publisher_ids['publisher_id'] = publisher_id
+                        publisher_ids['publisher_name'] = publisher['display_name']
+                        ids_writer.writerow(publisher_ids)
+
+                    if counts_by_year := publisher.get('counts_by_year'):
+                        for count_by_year in counts_by_year:
+                            count_by_year['publisher_id'] = publisher_id
+                            count_by_year['publisher_name'] = publisher['display_name']
+                            counts_by_year_writer.writerow(count_by_year)
+
+            files_done += 1
+            if FILES_PER_ENTITY and files_done >= FILES_PER_ENTITY:
+                break
+
+
+def flatten_sources():
+    with gzip.open(csv_files['sources']['sources']['name'], 'wt', encoding='utf-8') as sources_csv, \
+            gzip.open(csv_files['sources']['ids']['name'], 'wt', encoding='utf-8') as ids_csv, \
+            gzip.open(csv_files['sources']['counts_by_year']['name'], 'wt', encoding='utf-8') as counts_by_year_csv:
+
+        sources_writer = csv.DictWriter(
+            sources_csv, fieldnames=csv_files['sources']['sources']['columns'], extrasaction='ignore'
+        )
+        sources_writer.writeheader()
+
+        ids_writer = csv.DictWriter(ids_csv, fieldnames=csv_files['sources']['ids']['columns'])
+        ids_writer.writeheader()
+
+        counts_by_year_writer = csv.DictWriter(counts_by_year_csv,
+                                               fieldnames=csv_files['sources']['counts_by_year']['columns'])
+        counts_by_year_writer.writeheader()
+
+        seen_source_ids = set()
+
+        files_done = 0
+        for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'sources', '*', '*.gz')):
+            print(jsonl_file_name)
+            with gzip.open(jsonl_file_name, 'r') as sources_jsonl:
+                for source_json in sources_jsonl:
+                    if not source_json.strip():
+                        continue
+
+                    source = json.loads(source_json)
+
+                    if not (source_id := source.get('id')) or source_id in seen_source_ids:
+                        continue
+                    source_id = convert_openalex_id_to_int(source_id)
+                    source['source_id'] = source_id
+                    source['source_name'] = source['display_name']
+
+                    seen_source_ids.add(source_id)
+
+                    source['issn'] = json.dumps(source.get('issn'))
+                    sources_writer.writerow(source)
+
+                    if source_ids := source.get('ids'):
+                        source_ids['source_id'] = source_id
+                        source_ids['source_name'] = source['source_name']
+                        source_ids['issn'] = json.dumps(source_ids.get('issn'))
+                        ids_writer.writerow(source_ids)
+
+                    if counts_by_year := source.get('counts_by_year'):
+                        for count_by_year in counts_by_year:
+                            count_by_year['source_name'] = source['source_name']
+                            count_by_year['source_id'] = source_id
+                            counts_by_year_writer.writerow(count_by_year)
+
+            files_done += 1
+            if FILES_PER_ENTITY and files_done >= FILES_PER_ENTITY:
+                break
 
 
 def flatten_concepts():
@@ -354,67 +502,6 @@ def flatten_concepts():
                                     'related_concept_id': related_concept_id,
                                     'score': related_concept.get('score')
                                 })
-    return
-
-
-def flatten_venues():
-    skip_ids = get_skip_ids('venues')
-
-    with gzip.open(csv_files['venues']['venues']['name'], 'wt', encoding='utf-8') as venues_csv, \
-            gzip.open(csv_files['venues']['ids']['name'], 'wt', encoding='utf-8') as ids_csv, \
-            gzip.open(csv_files['venues']['counts_by_year']['name'], 'wt', encoding='utf-8') as counts_by_year_csv:
-
-        venues_writer = csv.DictWriter(
-            venues_csv, fieldnames=csv_files['venues']['venues']['columns'], extrasaction='ignore'
-        )
-        venues_writer.writeheader()
-
-        ids_writer = csv.DictWriter(ids_csv, fieldnames=csv_files['venues']['ids']['columns'], extrasaction='ignore')
-        ids_writer.writeheader()
-
-        counts_by_year_writer = csv.DictWriter(counts_by_year_csv,
-                                               fieldnames=csv_files['venues']['counts_by_year']['columns'],
-                                               extrasaction='ignore')
-        counts_by_year_writer.writeheader()
-
-        seen_venue_ids = set()
-
-        files = list(glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'venues', '*', '*.gz')))
-        for jsonl_file_name in tqdm(files, desc='Flattening venues...', unit=' file'):
-
-            with gzip.open(jsonl_file_name, 'r') as venues_jsonl:
-                for venue_json in venues_jsonl:
-                    if not venue_json.strip():
-                        continue
-
-                    venue = orjson.loads(venue_json)
-
-                    if not (venue_id := venue.get('id')) or venue_id in seen_venue_ids:
-                        continue
-
-                    venue_id = convert_openalex_id_to_int(venue_id)
-                    if venue_id in skip_ids:  # skip over merged IDs
-                        continue
-
-                    venue_name = venue['display_name']
-                    venue['venue_name'] = venue_name
-                    seen_venue_ids.add(venue_id)
-
-                    venue['issn'] = json.dumps(venue.get('issn'))
-                    venues_writer.writerow(venue)
-
-                    if venue_ids := venue.get('ids'):
-                        venue_ids['venue_id'] = venue_id
-                        venue_ids['venue_name'] = venue_name
-                        venue_ids['issn'] = json.dumps(venue_ids.get('issn'))
-                        ids_writer.writerow(venue_ids)
-
-                    if counts_by_year := venue.get('counts_by_year'):
-                        for count_by_year in counts_by_year:
-                            count_by_year['venue_id'] = venue_id
-                            count_by_year['venue_name'] = venue_name
-                            counts_by_year_writer.writerow(count_by_year)
-
     return
 
 
@@ -1123,7 +1210,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
         works_jsonls = works_jsonl.readlines()
 
     work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
-    concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows = [], [], [], [], [], []
+    concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows, grant_rows = [], [], [], [], [], [], []
 
     for work_json in tqdm(works_jsonls, desc=f'Parsing JSONs... {str(Path(jsonl_file_name).parts[-2:])}', unit=' line',
                           unit_scale=True, colour='blue',
@@ -1136,7 +1223,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
         if not (work_id := work.get('id')):
             continue
 
-        # works
+        ## works
         work_id = convert_openalex_id_to_int(work_id)
         if work_id in skip_ids:
             continue
@@ -1153,6 +1240,21 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
         else:
             title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
         work['title'] = title
+
+        work['language'] = work.get('language')  # works languages
+
+        ## works grants
+        has_grant = False
+        if grants := work.get('grants'):
+            for grant_d in grants:
+                has_grant = True  # set the flag to True
+                grant_rows.append({
+                    'work_id': work_id,
+                    'funder_id': convert_openalex_id_to_int(grant_d.get('funder')),
+                    'funder_name': grant_d.get('funder_display_name'),
+                    'award_id': grant_d.get('award_id'),
+                })
+        work['has_grant_info'] = has_grant
 
         # authorships
         if authorships := work.get('authorships'):
@@ -1181,42 +1283,70 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
                             'institution_id': institution_id,
                             'institution_name': institution_name,
                             'raw_affiliation_string': authorship.get('raw_affiliation_string'),
-                            'publication_year': work.get('publication_year')
+                            'publication_year': work.get('publication_year'),
+                            'is_corresponding': authorship.get('is_corresponding'),
                         })
 
         # works_writer.writerow(work)
         work['num_authors'] = num_authors
         work_rows.append(work)
 
-        # primary location
+        # # primary location
+        # # if primary_location := (work.get('primary_location') or {}):
+        #     if source := primary_location.get('source'):
+        #         source_id = convert_openalex_id_to_int(source.get('id'))
+        #         primary_location_rows.append({
+        #             'work_id': work_id,
+        #             'source_id': source_id,
+        #             'source_name': source.get('display_name'),
+        #             'source_type': source.get('type'),
+        #             'version': primary_location.get('version'),
+        #             'license': primary_location.get('license'),
+        #             'is_oa': primary_location.get('is_oa'),
+        #         })
+
         if primary_location := (work.get('primary_location') or {}):
-            if source := primary_location.get('source'):
-                source_id = convert_openalex_id_to_int(source.get('id'))
+            if primary_location.get('source') and primary_location.get('source').get('id'):
+                primary_location_d = primary_location.get('source', {})
+
                 primary_location_rows.append({
                     'work_id': work_id,
-                    'source_id': source_id,
-                    'source_name': source.get('display_name'),
-                    'source_type': source.get('type'),
+                    'source_id': convert_openalex_id_to_int(primary_location_d.get('id')),
+                    'source_name': primary_location_d.get('display_name'),
+                    'source_type': primary_location_d.get('type'),
+                    'is_oa': primary_location.get('is_oa'),
                     'version': primary_location.get('version'),
                     'license': primary_location.get('license'),
-                    'is_oa': primary_location.get('is_oa'),
                 })
 
         # locations
         if locations := work.get('locations'):
             for location in locations:
-                if source := location.get('source'):
-                    source_id = convert_openalex_id_to_int(source.get('id'))
+                if location.get('source') and location.get('source').get('id'):
+                    location_d = location.get('source', {})
                     location_rows.append({
                         'work_id': work_id,
-                        'source_id': source_id,
-                        'source_name': source.get('display_name'),
-                        'source_type': source.get('type'),
+                        'source_id': convert_openalex_id_to_int(location_d.get('id')),
+                        'source_name': location_d.get('display_name'),
+                        'source_type': location_d.get('type'),
+                        'is_oa': location.get('is_oa'),
                         'version': location.get('version'),
                         'license': location.get('license'),
-                        'is_oa': location.get('is_oa'),
                     })
 
+        # if locations := work.get('locations'):
+        #     for location in locations:
+        #         if source := location.get('source'):
+        #             source_id = convert_openalex_id_to_int(source.get('id'))
+        #             location_rows.append({
+        #                 'work_id': work_id,
+        #                 'source_id': source_id,
+        #                 'source_name': source.get('display_name'),
+        #                 'source_type': source.get('type'),
+        #                 'version': location.get('version'),
+        #                 'license': location.get('license'),
+        #                 'is_oa': location.get('is_oa'),
+        #             })
 
         # biblio
         if biblio := work.get('biblio'):
@@ -1289,9 +1419,9 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
 
     # write the batched parquets here
     kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
-             'referenced_works', 'related_works', 'abstracts']
+             'referenced_works', 'related_works', 'abstracts', 'grants']
     row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
-                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows]
+                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows, grant_rows]
 
     with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
         for kind, rows in zip(kinds, row_names):
@@ -1301,7 +1431,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
 
     finished_files.add(str(jsonl_file_name))
     dump_pickle(obj=finished_files, path=finished_files_pickle_path)
-    return
+    return len(work_rows)
 
 
 def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
@@ -1310,7 +1440,7 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
     """
     skip_ids = get_skip_ids('works')
 
-    kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
+    kinds = ['works', 'ids', 'grants', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
              'referenced_works', 'related_works', 'abstracts']
     for kind in kinds:
         # ensure directories exist
@@ -1342,15 +1472,18 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
 
     args = []
 
-    for i, jsonl_file_name in tqdm(enumerate(files), desc='Flattening works...', total=files_to_process,
-                                   unit=' files'):
-        if i >= files_to_process:
-            break
-        if threads > 1:
-            args.append((skip_ids, jsonl_file_name, finished_files, finished_files_pickle_path))
-        else:
-            process_work_json(skip_ids=skip_ids, jsonl_file_name=jsonl_file_name, finished_files=finished_files,
-                              finished_files_pickle_path=finished_files_pickle_path)
+    with tqdm(desc='Flattening works...', total=files_to_process, unit=' files') as pbar:
+        for i, jsonl_file_name in enumerate(files):
+            if i >= files_to_process:
+                break
+            if threads > 1:
+                args.append((skip_ids, jsonl_file_name, finished_files, finished_files_pickle_path))
+            else:
+                records = process_work_json(skip_ids=skip_ids, jsonl_file_name=jsonl_file_name,
+                                            finished_files=finished_files,
+                                            finished_files_pickle_path=finished_files_pickle_path)
+                pbar.update(1)
+                pbar.set_postfix_str(f'{records:,} works')
 
     if threads > 1:
         print(f'Spinning up {threads} parallel threads')
@@ -1365,24 +1498,21 @@ if STRING_DTYPE == 'string[pyarrow]':
     assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
 
 DTYPES = {
-    'works': dict(work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
-                  publication_date=STRING_DTYPE,
-                  type=STRING_DTYPE, cited_by_count='uint32', num_authors='uint16',
-                  is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
-                  created_date=STRING_DTYPE, updated_date=STRING_DTYPE),
+    'works': dict(
+        work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
+        publication_date=STRING_DTYPE,
+        type=STRING_DTYPE, cited_by_count='uint32', num_authors='uint16',
+        language=STRING_DTYPE, has_grant_info=bool,
+        is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
+        created_date=STRING_DTYPE, updated_date=STRING_DTYPE,
+    ),
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
         institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
-        publication_year='Int16'),
-    'host_venues': dict(
-        work_id='int64', venue_id='Int64', venue_name=STRING_DTYPE, type='category', url=STRING_DTYPE, is_oa=float,
-        version=STRING_DTYPE,
-        license=STRING_DTYPE,
+        publication_year='Int16', is_corresponding=STRING_DTYPE,
     ),
-    'alternate_host_venues': dict(
-        work_id='int64', venue_id='Int64', venue_name=STRING_DTYPE, type='category', url=STRING_DTYPE, is_oa=float,
-        version=STRING_DTYPE,
-        license=STRING_DTYPE
+    'works_grants': dict(
+        work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
     ),
     'primary_location': dict(
         work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
@@ -1459,17 +1589,14 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         df = (
             df
             .assign(
-                publication_date=lambda df_: pd.to_datetime(df_.publication_date, errors='coerce',
-                                                            infer_datetime_format=True),
-                created_date=lambda df_: pd.to_datetime(df_.created_date, errors='coerce',
-                                                        infer_datetime_format=True),
-                updated_date=lambda df_: pd.to_datetime(df_.updated_date, errors='coerce',
-                                                        infer_datetime_format=True),
+                publication_date=lambda df_: pd.to_datetime(df_.publication_date, errors='coerce'),
+                created_date=lambda df_: pd.to_datetime(df_.created_date, errors='coerce'),
+                updated_date=lambda df_: pd.to_datetime(df_.updated_date, errors='coerce'),
             )
         )
         # don't set the index here
         # df.set_index('work_id', inplace=True)
-        # df.sort_values(by='work_id', inplace=True)  # helps with setting the index later
+        df.sort_values(by='work_id', inplace=True)  # helps with setting the index later
 
     elif kind == 'authorships':
         df.drop_duplicates(inplace=True)  # weird bug causes authorships table to have repeated rows sometimes
@@ -1488,15 +1615,21 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
     return writer
 
 
+# TODO: add grants & works -> funders tables info
+# TODO: test primary location and locations code - must have source ids
+# TODO: add language to work, check if JSON dumps have language entry as key
+
 if __name__ == '__main__':
     # flatten_concepts()  # takes about 30s
-    # flatten_venues()  # takes about 20s
     # flatten_institutions()  # takes about 20s
+    # flatten_publishers()
+    # flatten_sources()
 
-    # files_to_process = 10
-    files_to_process = 'all'  # to do everything
+    files_to_process = 15
+    # files_to_process = 'all'  # to do everything
     # files_to_process = 100  # or any other number
-    threads = 7
+    threads = 1
+    # threads = 7
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
