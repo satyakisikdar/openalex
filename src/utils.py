@@ -1,6 +1,7 @@
 import ast
 import multiprocessing
 import pickle
+import re
 import unicodedata
 from collections import namedtuple
 from datetime import datetime
@@ -14,6 +15,7 @@ import ujson as json
 from box import Box
 from seaborn._statistics import EstimateAggregator
 from tqdm import tqdm
+from unidecode import unidecode_expect_ascii
 
 from src.globals import path_type
 
@@ -127,6 +129,38 @@ def clean_string(s: str) -> str:
         return s_
     else:
         return ''
+
+
+def clean_html(raw_html):
+    cleanr = re.compile('<.*?>')
+    try:
+        cleantext = re.sub(cleanr, '', raw_html)
+    except TypeError:
+        cleantext = raw_html
+    return cleantext
+
+
+def remove_punctuation(input_string):
+    # from http://stackoverflow.com/questions/265960/best-way-to-strip-punctuation-from-a-string-in-python
+    no_punc = input_string
+    if input_string:
+        no_punc = "".join(e for e in input_string if (e.isalnum() or e.isspace()))
+    return no_punc
+
+
+# good for deduping strings.  warning: output removes spaces so isn't readable.
+def normalize_string(text, decode=True):
+    if pd.isna(text) or not text:
+        return pd.NA
+    response = text.lower()
+    if decode:
+        response = unidecode_expect_ascii(response)
+    response = clean_html(response)  # has to be before remove_punctuation
+    response = remove_punctuation(response)
+    response = re.sub(r"\b(a|an|the)\b", "", response)
+    response = re.sub(r"\b(and)\b", "", response)
+    response = re.sub("\s+", "", response)
+    return response
 
 
 # Read file list from MANIFEST
