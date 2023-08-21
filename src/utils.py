@@ -179,7 +179,8 @@ def read_manifest(kind: str, snapshot_dir) -> Box:
         entry = Box({'filename': filename, 'kind': kind,
                      'count': raw_entry.meta.record_count,
                      'updated_date': '_'.join(filename.parts[-2:]).replace('.gz', '')})
-        entries.append(entry)
+        if entry.count > 0:
+            entries.append(entry)
 
     data['entries'] = sorted(entries, key=lambda x: x.count)
 
@@ -254,13 +255,25 @@ def construct_abstracts(inv_abstracts):
 
 def reconstruct_abstract(inv_abstract_st):
     if inv_abstract_st is None:
-        return ''
+        return pd.NA
 
     if isinstance(inv_abstract_st, bytes):
         inv_abstract_st = inv_abstract_st.decode('utf-8', errors='replace')
     # inv_abstract_st = ast.literal_eval(inv_abstract_st)  # convert to python object
+    try:
+        if isinstance(inv_abstract_st, str):
+            if inv_abstract_st != '':
+                inv_abstract = json.loads(inv_abstract_st)
+            else:
+                inv_abstract = dict()
+        elif isinstance(inv_abstract_st, dict):
+            inv_abstract = inv_abstract_st
+        else:
+            raise NotImplementedError(f'Invalid {inv_abstract_st=} of type {inv_abstract_st}')
+    except json.JSONDecodeError as e:
+        print(f'Error {e} {inv_abstract_st=} {type(inv_abstract_st)=}')
+        raise e
 
-    inv_abstract = json.loads(inv_abstract_st) if isinstance(inv_abstract_st, str) else inv_abstract_st
     abstract_dict = {}
     for word, locs in inv_abstract.items():  # invert the inversion
         for loc in locs:
@@ -268,7 +281,7 @@ def reconstruct_abstract(inv_abstract_st):
     abstract = ' '.join(map(lambda x: x[1],  # pick the words
                             sorted(abstract_dict.items())))  # sort abstract dictionary by indices
     if len(abstract) == 0:
-        abstract = ''
+        abstract = pd.NA
     return abstract
 
 

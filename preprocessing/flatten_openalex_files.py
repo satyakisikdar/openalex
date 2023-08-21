@@ -953,8 +953,8 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
         num_authors, num_references, num_locations = 0, 0, 0
         type_crossref = work.get('type_crossref')
         work['type_crossref'] = type_crossref
-        if type_crossref is not None:
-            print(f'{work_id=} {jsonl_file_name=} {type_crossref=}')
+        # if type_crossref is not None:
+        #     print(f'{work_id=} {jsonl_file_name=} {type_crossref=}')
         work['work_id'] = work_id
         doi = work['doi']
         doi = doi.replace('https://doi.org/', '') if doi is not None else None
