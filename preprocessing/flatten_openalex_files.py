@@ -2,12 +2,16 @@
 Flatten Openalex JSON line files into individual CSVs.
 Original script at https://github.com/ourresearch/openalex-documentation-scripts/blob/main/flatten-openalex-jsonl.py
 """
+
+# TODO: add institution names to authorships table
+
 import csv
 import glob
 import gzip
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Union, Optional
 
@@ -21,7 +25,7 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'may-2023'
+MONTH = 'aug-2023'
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
 CSV_DIR.mkdir(parents=True, exist_ok=True)
@@ -156,8 +160,8 @@ csv_files = \
         'works': {
             'name': os.path.join(CSV_DIR, 'works.csv.gz'),
             'columns': [
-                'work_id', 'doi', 'title', 'publication_year', 'publication_date', 'type', 'cited_by_count',
-                'num_authors', 'language', 'has_grant_info', 'num_locations', 'num_references',
+                'work_id', 'doi', 'title', 'publication_year', 'publication_date', 'type', 'type_crossref',
+                'cited_by_count', 'num_authors', 'language', 'has_grant_info', 'num_locations', 'num_references',
                 'is_retracted', 'is_paratext', 'created_date', 'updated_date'
             ]
         },
@@ -191,7 +195,7 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works_authorships.csv.gz'),
             'columns': [
                 'work_id', 'author_position', 'author_id', 'author_name', 'institution_id',
-                'institution_name', 'raw_affiliation_string', 'publication_year', 'is_corresponding',
+                'institution_name', 'raw_affiliation_string', 'countries', 'publication_year', 'is_corresponding',
             ]
         },
         'biblio': {
@@ -324,7 +328,7 @@ def flatten_publishers():
 
         files_done = 0
         for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'publishers', '*', '*.gz')):
-            print(jsonl_file_name)
+            # print(jsonl_file_name)
             with gzip.open(jsonl_file_name, 'r') as concepts_jsonl:
                 for publisher_json in concepts_jsonl:
                     if not publisher_json.strip():
@@ -382,7 +386,7 @@ def flatten_sources():
 
         files_done = 0
         for jsonl_file_name in glob.glob(os.path.join(SNAPSHOT_DIR, 'data', 'sources', '*', '*.gz')):
-            print(jsonl_file_name)
+            # print(jsonl_file_name)
             with gzip.open(jsonl_file_name, 'r') as sources_jsonl:
                 for source_json in sources_jsonl:
                     if not source_json.strip():
@@ -921,7 +925,7 @@ def flatten_authors_hints(files_to_process: Union[str, int] = 'all'):
     return
 
 
-def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_pickle_path):
+def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_txt_path):
     """
     Process each work JSON lines file in parallel
     """
@@ -932,9 +936,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
     concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows, grant_rows = [], [], [], [], [], [], []
     desc = 'Parsing JSONs...' + '/'.join(Path(jsonl_file_name).parts[-2:])
 
-    for work_json in tqdm(works_jsonls, desc=desc, unit=' line',
-                          unit_scale=True, colour='blue',
-                          leave=False):
+    for work_json in tqdm(works_jsonls, desc=desc, unit=' line', unit_scale=True, colour='blue', leave=False):
         if not work_json.strip():
             continue
 
@@ -949,7 +951,10 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
             continue
 
         num_authors, num_references, num_locations = 0, 0, 0
-
+        type_crossref = work.get('type_crossref')
+        work['type_crossref'] = type_crossref
+        if type_crossref is not None:
+            print(f'{work_id=} {jsonl_file_name=} {type_crossref=}')
         work['work_id'] = work_id
         doi = work['doi']
         doi = doi.replace('https://doi.org/', '') if doi is not None else None
@@ -984,6 +989,9 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
                     author_id = convert_openalex_id_to_int(author_id)
                     author_name = authorship.get('author', {}).get('display_name')
 
+                    # join list of country codes with ;
+                    countries = ';'.join(authorship.get('countries', []))
+
                     institutions = authorship.get('institutions')
                     institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
                     institution_ids = [i for i in institution_ids if i]
@@ -1002,6 +1010,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
                             'institution_id': institution_id,
                             'institution_name': institution_name,
                             'raw_affiliation_string': authorship.get('raw_affiliation_string'),
+                            'countries': countries,
                             'publication_year': work.get('publication_year'),
                             'is_corresponding': authorship.get('is_corresponding'),
                         })
@@ -1096,10 +1105,13 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
 
         # abstracts
         if (abstract_inv_index := work.get('abstract_inverted_index')) is not None:
+            if 'InvertedIndex' in abstract_inv_index:  # new format of nested abstract dictionaries
+                abstract_inv_index = abstract_inv_index['InvertedIndex']
+                # print(f'New format abstract', repr(abstract_inv_index)[: 50])
             try:
                 abstract = reconstruct_abstract(abstract_inv_index)
             except orjson.JSONDecodeError as e:
-                abstract = ''
+                abstract = pd.NA
 
             abstract_row = {'work_id': work_id, 'title': title, 'abstract': abstract,
                             'publication_year': work.get('publication_year')}
@@ -1111,15 +1123,21 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
     row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
                  concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows, grant_rows]
 
+    lines = []
     with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
         for kind, rows in zip(kinds, row_names):
             pbar.set_postfix_str(kind)
-            write_to_csv_and_parquet(json_filename=jsonl_file_name, kind=kind, rows=rows)
+            new_file = write_to_csv_and_parquet(json_filename=jsonl_file_name, kind=kind, rows=rows)
+            if new_file:
+                lines.append(
+                    f'{datetime.now().strftime("%c").strip()},{str(jsonl_file_name)},{kind},{len(work_rows)}\n')
+                ## write to csv file
             pbar.update(1)
 
-    # TODO bug here - finished_files is not getting updated
-    finished_files.add(str(jsonl_file_name))
-    dump_pickle(obj=finished_files, path=finished_files_pickle_path)
+    with open(finished_files_txt_path, 'a') as fp:
+        for line in lines:
+            fp.write(line)
+
     return len(work_rows)
 
 
@@ -1140,18 +1158,27 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
             print(f'Creating dir at {str(path)}')
             path.mkdir(parents=True)
 
-    finished_files_pickle_path = PARQ_DIR / 'temp' / 'finished_works.pkl'
-    finished_files_pickle_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
+    finished_files_txt_path = PARQ_DIR / 'temp' / 'finished_works.txt'  # store finished paths in a text file
+    finished_files_txt_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
 
-    if finished_files_pickle_path.exists():
-        finished_files = load_pickle(finished_files_pickle_path)  # load the pickle
+    if finished_files_txt_path.exists():
+        finished_files = set(
+            pd.read_csv(finished_files_txt_path)  # load the pickle
+            .groupby('path', as_index=False)
+            .count()
+            .query('records==12')  # finished files will have 12 tables
+            .path
+        )
         print(f'{len(finished_files)} existing files found!')
     else:
+        with open(finished_files_txt_path, 'w') as fp:
+            fp.write(f'timestamp,path,table,records\n')
         finished_files = set()
 
     works_manifest = read_manifest(kind='works', snapshot_dir=SNAPSHOT_DIR / 'data')
     files = [str(entry.filename) for entry in works_manifest.entries]
     files = [f for f in files if f not in finished_files]
+    # print(f'{files[: 2]}')
 
     print(f'This might take a while, like 20 hours..')
 
@@ -1166,11 +1193,11 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
             if i >= files_to_process:
                 break
             if threads > 1:
-                args.append((skip_ids, jsonl_file_name, finished_files, finished_files_pickle_path))
+                args.append((skip_ids, jsonl_file_name, finished_files, finished_files_txt_path))
             else:
                 records = process_work_json(skip_ids=skip_ids, jsonl_file_name=jsonl_file_name,
                                             finished_files=finished_files,
-                                            finished_files_pickle_path=finished_files_pickle_path)
+                                            finished_files_txt_path=finished_files_txt_path)
                 total_works_count += records
                 pbar.update(1)
                 pbar.set_postfix_str(f'{total_works_count:,} works')
@@ -1182,16 +1209,16 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
     return
 
 
-STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
-
+# STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
+STRING_DTYPE = 'string[python]'
 if STRING_DTYPE == 'string[pyarrow]':
     assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
 
 DTYPES = {
     'works': dict(
         work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
-        publication_date=STRING_DTYPE,
-        type='category', cited_by_count='uint32', num_authors='uint16',
+        publication_date=STRING_DTYPE, type='category', type_crossref=STRING_DTYPE,
+        cited_by_count='uint32', num_authors='uint16',
         language=STRING_DTYPE, has_grant_info=bool,
         num_locations='uint16', num_references='uint16',
         is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
@@ -1200,7 +1227,7 @@ DTYPES = {
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
         institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
-        publication_year='Int16', is_corresponding=STRING_DTYPE,
+        countries=STRING_DTYPE, publication_year='Int16', is_corresponding=STRING_DTYPE,
     ),
     'grants': dict(
         work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
@@ -1235,14 +1262,15 @@ DTYPES = {
 }
 
 
-def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: bool = True,
+def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: bool = False,
                              csv_writer: Optional[csv.DictWriter] = None):
     """
     Write rows to the CSV using the CSV writer
     Also create a new file inside the respective parquet directory
+    return True or False based on whether the file is new
     """
     if len(rows) == 0:
-        return
+        return True
 
     if csv_writer is not None:
         csv_writer.writerows(rows)
@@ -1256,7 +1284,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
 
     if parq_filename.exists():
         # print(f'Parquet already exists {str(parq_filename.parts[-2:])}')
-        return
+        return False
     # parq_filename.parent.mkdir(exist_ok=True, parents=True)
     if debug:
         print(f'{kind=} {parq_filename=} {len(rows)=:,}')
@@ -1267,7 +1295,8 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         pd.DataFrame(rows)
     )
     missing_cols = [col for col in keep_cols if col not in df.columns.tolist()]
-
+    if debug:
+        print(f'{missing_cols=}')
     for missing_col in missing_cols:
         df.loc[:, missing_col] = pd.NA
 
@@ -1276,13 +1305,18 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
     if kind in DTYPES:
         df = df.astype(dtype=DTYPES[kind], errors='ignore')  # handle pesky dates
 
+    if pd.__version__ < "2":
+        args = dict(infer_datetime_format=True)
+    else:
+        args = dict()
+
     if kind == 'works':
         df = (
             df
             .assign(
-                publication_date=lambda df_: pd.to_datetime(df_.publication_date, errors='coerce'),
-                created_date=lambda df_: pd.to_datetime(df_.created_date, errors='coerce'),
-                updated_date=lambda df_: pd.to_datetime(df_.updated_date, errors='coerce'),
+                publication_date=lambda df_: pd.to_datetime(df_.publication_date, errors='coerce', **args),
+                created_date=lambda df_: pd.to_datetime(df_.created_date, errors='coerce', **args),
+                updated_date=lambda df_: pd.to_datetime(df_.updated_date, errors='coerce', **args),
             )
         )
         # don't set the index here
@@ -1293,7 +1327,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         df.drop_duplicates(inplace=True)  # weird bug causes authorships table to have repeated rows sometimes
 
     df.to_parquet(parq_filename, engine='pyarrow', coerce_timestamps='ms', allow_truncated_timestamps=True)
-    return
+    return True
 
 
 def init_dict_writer(csv_file, file_spec, **kwargs):
@@ -1312,9 +1346,9 @@ if __name__ == '__main__':
     # flatten_publishers()
     # flatten_sources()
     files_to_process = 'all'  # to do everything
-    # files_to_process = 100  # or any other number
+    # files_to_process = 10  # or any other number
     # threads = 1
-    threads = 3
+    threads = 10
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
