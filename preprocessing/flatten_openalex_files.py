@@ -590,8 +590,8 @@ def flatten_institutions():
                             if associated_institution_id := associated_institution.get('id'):
                                 associated_institutions_writer.writerow({
                                     'institution_id': institution_id,
-                                    'associated_institution_id': associated_institution_id,
-                                    'relationship': associated_institution.get('relationship')
+                                    'associated_institution_id': convert_openalex_id_to_int(associated_institution_id),
+                                    'relationship': associated_institution.get('relationship'),
                                 })
 
                     # counts_by_year
@@ -1342,7 +1342,7 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
 
 if __name__ == '__main__':
     # flatten_concepts()  # takes about 30s
-    # flatten_institutions()  # takes about 20s
+    flatten_institutions()  # takes about 20s
     # flatten_publishers()
     # flatten_sources()
     files_to_process = 'all'  # to do everything
@@ -1353,4 +1353,4 @@ if __name__ == '__main__':
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
-    flatten_works_v2(files_to_process=files_to_process, threads=threads)  # takes about 20 hours  ~6 mins per file
+    # flatten_works_v2(files_to_process=files_to_process, threads=threads)  # takes about 20 hours  ~6 mins per file
