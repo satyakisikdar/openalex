@@ -6,6 +6,10 @@ Filtering the entire dataset based on certain criteria
 
 Essentially, read the whole CSVs in chunks, filtering them, and writing them back out again
 """
+import warnings
+
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 from pathlib import Path
 
 import pandas as pd
