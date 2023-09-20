@@ -114,8 +114,10 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
         df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
 
     filt_df = (
-        df
-        [(df.type_crossref.isin(work_types)) & (df.publication_year.between(start_year, end_year))]
+        df[
+            (df.type.isin(work_types) | df.type_crossref.isin(work_types)) &
+            (df.publication_year.between(start_year, end_year))
+            ]
     )
 
     filt_df = (
