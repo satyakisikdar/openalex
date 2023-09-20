@@ -99,7 +99,7 @@ def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
                   'book-chapter'}  # only keep these types
     start_year, end_year = year_range  # year range
 
-    (parq_path / f'_works').mkdir(exist_ok=True)  # create necessary dirs
+    (parq_path / f'_works').mkdir(exist_ok=True, parents=True)  # create necessary dirs
     parq_filename = parq_path / f'_works' / f'part-{idx}.parquet'
 
     if parq_filename.exists():
