@@ -123,7 +123,7 @@ def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
         .drop(columns=['is_paratext'])
     )
     filt_df.set_index('work_id', inplace=True)
-    filt_df.to_parquet(parq_filename, engine='pyarrow')
+    filt_df.to_parquet(parq_filename)
 
     return
 
