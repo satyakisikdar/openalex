@@ -318,7 +318,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                     row_counts += len(filt_df)
 
                 pbar.update(1)
-                pbar.set_description(f'Rows: {row_counts:,}')
+                pbar.set_description(f'{kind!r} Rows: {row_counts:,}')
 
 
         # delete the partial parquets
