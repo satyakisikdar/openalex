@@ -100,7 +100,7 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
     Process each chunked df with index idx
     """
     assert len(df) > 0, f'Work df at {str(parq_path)!r} is empty'
-    work_types = {'journal-article', 'proceedings-article', 'posted-content',
+    work_types = {'article', 'journal-article', 'proceedings-article', 'posted-content',
                   'book-chapter'}  # only keep these types
     start_year, end_year = year_range  # year range
 
