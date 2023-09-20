@@ -11,30 +11,34 @@ from pathlib import Path
 import pandas as pd
 from tqdm.auto import tqdm
 
-# october
-# works: 243_522_437
-# works_concepts: 1_831_732_671
-# host_venues: 128_002_586
+to_datetime_ags = dict(format='%Y-%m-%d', errors='coerce', )
+if pd.__version__ < '2':
+    to_datetime_ags.update({'infer_datetime_format': True})  # only for pandas < 2
 
-dtypes = {
-    'works': dict(work_id='int64', doi='string', title='string', publication_year='Int16', publication_date='string',
-                  type='string', cited_by_count='uint32', is_retracted=float, is_paratext=float),
-    'authorships': dict(
-        work_id='int64', author_position='category', author_id='Int64', author_name='string',
-        institution_id='Int64', institution_name='string', raw_affiliation_string='string',
-        publication_year='Int16'),
-    'host_venues': dict(
-        work_id='int64', venue_id='Int64', venue_name='string', url='string', is_oa=float, version='string',
-        license='string'
-    ),
-    'referenced_works': dict(
-        work_id='int64', referenced_work_id='int64'
-    ),
-    'concepts': dict(
-        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
-        score=float
-    )
-}
+from preprocessing.flatten_openalex_files import DTYPES
+
+dtypes = DTYPES  # use the dtypes from the other file
+
+
+# dtypes = {
+#     'works': dict(work_id='int64', doi='string', title='string', publication_year='Int16', publication_date='string',
+#                   type='string', cited_by_count='uint32', is_retracted=float, is_paratext=float),
+#     'authorships': dict(
+#         work_id='int64', author_position='category', author_id='Int64', author_name='string',
+#         institution_id='Int64', institution_name='string', raw_affiliation_string='string',
+#         publication_year='Int16'),
+#     'host_venues': dict(
+#         work_id='int64', venue_id='Int64', venue_name='string', url='string', is_oa=float, version='string',
+#         license='string'
+#     ),
+#     'referenced_works': dict(
+#         work_id='int64', referenced_work_id='int64'
+#     ),
+#     'concepts': dict(
+#         work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
+#         score=float
+#     )
+# }
 
 
 def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
@@ -52,29 +56,50 @@ def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
         return
 
     if 'year' in df.columns.tolist():
-        filt_df = (
-            df
-            [(df.type.isin(work_types)) & (df.year.between(start_year, end_year))]
-        )
-        filt_df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
-    else:
-        filt_df = (
-            df
-            [(df.type.isin(work_types)) & (df.publication_year.between(start_year, end_year))]
-        )
+        df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
+
+    filt_df = (
+        df
+        [(df.type_crossref.isin(work_types)) & (df.publication_year.between(start_year, end_year))]
+    )
 
     filt_df = (
         filt_df
-        .astype({'cited_by_count': 'uint32', 'type': 'category', 'publication_year': 'uint32', 'is_retracted': 'bool'})
+        .astype(dtypes['works'])
+        # .astype({'cited_by_count': 'uint32', 'type': 'category', 'publication_year': 'uint32', 'is_retracted': 'bool'})
         .query('is_paratext!=1')
-        .assign(publication_date=lambda df_: pd.to_datetime(df_.publication_date, format='%Y-%m-%d', errors='coerce'),
+        .assign(publication_date=lambda df_: pd.to_datetime(df_.publication_date, **to_datetime_ags),
                 doi=lambda df_: df_.doi.str.replace('https://doi.org/', '', regex=False))
-        .iloc[:, :-1]  # drop the last column is_paratext
+        .drop(columns=['is_paratext'])
     )
     filt_df.set_index('work_id', inplace=True)
     filt_df.to_parquet(parq_filename, engine='pyarrow')
 
     return
+
+
+def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
+    """
+    Write the filtered works table as a parquet
+    """
+    works_parq_filename = parq_path / 'works'
+
+    if works_parq_filename.exists():
+        print(f'Filtered works parquet exists at {str(works_parq_filename)}.')
+        return
+
+    whole_work_chunks = list(whole_works_parq_path.glob('*.parquet'))
+    for i, chunked_work_df in enumerate(tqdm(whole_work_chunks)):
+        process_work_chunk(df=chunked_work_df, idx=i, parq_path=parq_path)
+
+    # write a single parquet for all the parts
+    split_df = pd.read_parquet(parq_path / f'_works')
+    split_df.to_parquet(works_parq_filename)
+
+    # delete the partial parquets
+    # shutil.rmtree(parq_path / f'_works')  # todo: testing needed
+    return
+
 
 
 def write_filtered_works_table(csv_path, parq_path):
@@ -211,6 +236,17 @@ def main():
     print(next(iter(work_ids)))
     print(f'{len(work_ids):,} work ids loaded')
     write_other_filtered_tables(csv_path=csv_path, parq_path=parq_path, work_ids=work_ids)
+    return
+
+
+def main_v2():
+    # step 0: set paths
+    whole_parq_path = Path(
+        '/N/project/openalex/ssikdar/processed-snapshots/aug-2023')  # path to flattened openalex parqs
+    filtered_parq_path = Path('/N/project/openalex/ssikdar/filtered')
+
+    # step 1: fitler the works table
+    write_filtered_works_table_v2(parq_path=filtered_parq_path, whole_works_parq_path=whole_parq_path / 'works')
     return
 
 
