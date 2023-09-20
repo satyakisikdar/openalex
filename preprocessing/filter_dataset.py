@@ -261,7 +261,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
             if (final_parq_path / f'{stem}.parquet').exists():
                 continue
             unfinished_chunks_paths.append(whole_work_chunk_path)
-        print(f'{len(unfinished_chunks_paths)=:,}')
+        # print(f'{len(unfinished_chunks_paths)=:,}')
 
         with tqdm(total=len(unfinished_chunks_paths), colour='cyan', desc=f'{kind!r}') as pbar:
             for i, chunked_path in enumerate(unfinished_chunks_paths):
