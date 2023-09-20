@@ -289,6 +289,8 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
         with tqdm(total=len(unfinished_chunks_paths), colour='cyan', desc=f'{kind!r}') as pbar:
             for i, chunked_path in enumerate(unfinished_chunks_paths):
+                if i > 5:
+                    break
                 chunked_df = pd.read_parquet(chunked_path, engine='fastparquet')
 
                 parq_filename = final_parq_path / f'{chunked_path.stem}.parquet'
