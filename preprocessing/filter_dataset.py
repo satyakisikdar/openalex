@@ -139,6 +139,8 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
         return
 
     whole_work_chunks = list(whole_works_parq_path.glob('*.parquet'))
+    assert len(whole_work_chunks) > 0, f'Work chunks not found at {str(whole_work_chunks)!r}'
+
     for i, chunked_work_df in enumerate(tqdm(whole_work_chunks)):
         process_work_chunk(df=chunked_work_df, idx=i, parq_path=parq_path)
 
@@ -292,7 +294,7 @@ def main():
 def main_v2():
     # step 0: set paths
     whole_parq_path = Path(
-        '/N/project/openalex/ssikdar/processed-snapshots/aug-2023')  # path to flattened openalex parqs
+        '/N/project/openalex/ssikdar/processed-snapshots/parquet-files/aug-2023')  # path to openalex parqs
     filtered_parq_path = Path('/N/project/openalex/ssikdar/filtered')
 
     # step 1: fitler the works table
