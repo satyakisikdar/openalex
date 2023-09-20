@@ -261,23 +261,34 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
     """
     Read tables CSVs in chunks
     """
-    kinds = ['authorships', 'primary_locations', 'concepts', 'referenced_works']
+    kinds = ['authorships', 'primary_locations', 'concepts', 'referenced_works'][: 1]
     for kind in tqdm(kinds):
         print(f'{kind=}')
 
-        final_parq_path = filt_parq_path / f'works_{kind}.parquet'
-        (filt_parq_path / f'_works_{kind}').mkdir(exist_ok=True, parents=True)
+        final_parq_path = filt_parq_path / f'works_{kind}'
+        final_parq_path.mkdir(exist_ok=True, parents=True)
 
-        if final_parq_path.exists():
-            print(f'Filtered {kind} exists. Skipping')
-            continue
+        existing_filtered_chunks_paths = list(final_parq_path.glob('*.parquet'))
 
-        whole_table_chunks = sorted((whole_parq_path / kind).glob('*.parquet'))
-        assert len(whole_table_chunks) > 0, f'Table chunks not found at {str(whole_parq_path / kind)!r}'
+        whole_table_chunks_paths = sorted((whole_parq_path / kind).glob('*.parquet'))
+        assert len(whole_table_chunks_paths) > 0, f'{kind} chunks not found at {str(whole_table_chunks_paths)!r}'
+
+        if len(existing_filtered_chunks_paths) == len(whole_table_chunks_paths):
+            print(f'Complete filtered {kind!r} found at {str(final_parq_path)!r}')
+            return
+
         row_counts = 0
 
-        with tqdm(total=len(whole_table_chunks), colour='cyan', desc=f'{kind!r}') as pbar:
-            for i, chunked_path in enumerate(whole_table_chunks):
+        unfinished_chunks_paths = []
+        for whole_work_chunk_path in whole_table_chunks_paths:
+            stem = whole_work_chunk_path.stem
+            if (final_parq_path / f'{stem}.parquet').exists():
+                continue
+            unfinished_chunks_paths.append(whole_work_chunk_path)
+        print(f'{len(unfinished_chunks_paths)=:,}')
+
+        with tqdm(total=len(unfinished_chunks_paths), colour='cyan', desc=f'{kind!r}') as pbar:
+            for i, chunked_path in enumerate(unfinished_chunks_paths):
                 chunked_df = pd.read_parquet(chunked_path, engine='fastparquet')
 
                 parq_filename = filt_parq_path / f'_works_{kind}' / f'{chunked_path.stem}.parquet'
@@ -304,9 +315,6 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                 pbar.update(1)
                 pbar.set_description(f'Rows: {row_counts:,}')
 
-        # write a single parquet for all the parts
-        split_df = pd.read_parquet(filt_parq_path / f'_works_{kind}')
-        split_df.to_parquet(final_parq_path)
 
         # delete the partial parquets
         # shutil.rmtree(parq_path / f'_works_{kind}')  # TODO: testing needed
@@ -374,6 +382,16 @@ def main_v2():
 
     # step 1: fitler the works table
     write_filtered_works_table_v2(parq_path=filtered_parq_path, whole_works_parq_path=whole_parq_path / 'works')
+
+    work_ids = set(
+        pd.read_parquet(filtered_parq_path / 'works', engine='fastparquet',
+                        columns=['work_id'])  # read only the work id column
+        .index
+    )
+    print(next(iter(work_ids)))
+    print(f'{len(work_ids):,} work ids loaded')
+    write_other_filtered_tables_v2(whole_parq_path=whole_parq_path, filt_parq_path=filtered_parq_path,
+                                   work_ids=work_ids)
     return
 
 
