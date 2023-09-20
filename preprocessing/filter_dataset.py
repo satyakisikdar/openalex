@@ -143,7 +143,7 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
 
     for i, chunked_work_path in enumerate(tqdm(whole_work_chunks)):
         if i > 20:
-            break
+            return
         chunked_work_df = pd.read_parquet(chunked_work_path, engine='fastparquet')
         process_work_chunk(df=chunked_work_df, idx=i, parq_path=parq_path)
 
