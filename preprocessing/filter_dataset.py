@@ -291,7 +291,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
             for i, chunked_path in enumerate(unfinished_chunks_paths):
                 chunked_df = pd.read_parquet(chunked_path, engine='fastparquet')
 
-                parq_filename = filt_parq_path / f'_works_{kind}' / f'{chunked_path.stem}.parquet'
+                parq_filename = final_parq_path / f'{chunked_path.stem}.parquet'
 
                 if parq_filename.exists():
                     row_counts += (
