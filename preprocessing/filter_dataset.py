@@ -108,7 +108,7 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
     parq_filename = parq_path / f'_works' / f'{chunk_name}.parquet'
 
     if parq_filename.exists():
-        return
+        return pd.read_parquet(parq_filename, columns=['work_id']).size
 
     if 'year' in df.columns.tolist():
         df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
@@ -129,11 +129,11 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
                 doi=lambda df_: df_.doi.str.replace('https://doi.org/', '', regex=False))
         .drop(columns=['is_paratext'])
     )
-    print(f'{chunk_name=} {len(filt_df)=:,}')
+
     filt_df.set_index('work_id', inplace=True)
     filt_df.to_parquet(parq_filename)
 
-    return
+    return len(filt_df)
 
 
 def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
@@ -148,10 +148,16 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
 
     whole_work_chunks = sorted(whole_works_parq_path.glob('*.parquet'))  # sorted so pieces dont get repeated
     assert len(whole_work_chunks) > 0, f'Work chunks not found at {str(whole_work_chunks)!r}'
+    filt_works_count = 0
 
-    for i, chunked_work_path in enumerate(tqdm(whole_work_chunks)):
-        chunked_work_df = pd.read_parquet(chunked_work_path, engine='fastparquet')
-        process_work_chunk(df=chunked_work_df, chunk_name=chunked_work_path.stem, parq_path=parq_path)
+    with tqdm(total=len(whole_work_chunks), colour='orange') as pbar:
+        for i, chunked_work_path in enumerate(whole_work_chunks):
+            chunked_work_df = pd.read_parquet(chunked_work_path, engine='fastparquet')
+            filt_works_count += process_work_chunk(df=chunked_work_df, chunk_name=chunked_work_path.stem,
+                                                   parq_path=parq_path)
+            pbar.set_description(f'Filtered works: {filt_works_count:,}')
+            pbar.update(1)
+
 
     # write a single parquet for all the parts
     split_df = pd.read_parquet(parq_path / f'_works')
