@@ -127,7 +127,7 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
                 doi=lambda df_: df_.doi.str.replace('https://doi.org/', '', regex=False))
         .drop(columns=['is_paratext'])
     )
-    print(f'{chunk_name=:,} {len(filt_df)=:,}')
+    print(f'{chunk_name=} {len(filt_df)=:,}')
     filt_df.set_index('work_id', inplace=True)
     filt_df.to_parquet(parq_filename)
 
