@@ -7,11 +7,9 @@ Filtering the entire dataset based on certain criteria
 Essentially, read the whole CSVs in chunks, filtering them, and writing them back out again
 """
 import warnings
-
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 from pathlib import Path
-
 import pandas as pd
 from tqdm.auto import tqdm
 
@@ -72,28 +70,6 @@ if pd.__version__ < '2':
     to_datetime_ags.update({'infer_datetime_format': True})  # only for pandas < 2
 
 dtypes = DTYPES  # use the dtypes from the other file
-
-
-# dtypes = {
-#     'works': dict(work_id='int64', doi='string', title='string', publication_year='Int16', publication_date='string',
-#                   type='string', cited_by_count='uint32', is_retracted=float, is_paratext=float),
-#     'authorships': dict(
-#         work_id='int64', author_position='category', author_id='Int64', author_name='string',
-#         institution_id='Int64', institution_name='string', raw_affiliation_string='string',
-#         publication_year='Int16'),
-#     'host_venues': dict(
-#         work_id='int64', venue_id='Int64', venue_name='string', url='string', is_oa=float, version='string',
-#         license='string'
-#     ),
-#     'referenced_works': dict(
-#         work_id='int64', referenced_work_id='int64'
-#     ),
-#     'concepts': dict(
-#         work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
-#         score=float
-#     )
-# }
-
 
 def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
     """
@@ -289,10 +265,11 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
         with tqdm(total=len(unfinished_chunks_paths), colour='cyan', desc=f'{kind!r}') as pbar:
             for i, chunked_path in enumerate(unfinished_chunks_paths):
+                print()
                 if i > 5:
                     break
                 chunked_df = pd.read_parquet(chunked_path, engine='fastparquet')
-
+                print(f'{len(chunked_df)=:,}')
                 parq_filename = final_parq_path / f'{chunked_path.stem}.parquet'
                 filt_df = (
                     chunked_df
@@ -305,7 +282,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                         filt_df
                         [filt_df.referenced_work_id.isin(work_ids)]
                     )
-
+                print(filt_df.info())
                 filt_df.to_parquet(parq_filename, engine='pyarrow')
                 row_counts += len(filt_df)
 
