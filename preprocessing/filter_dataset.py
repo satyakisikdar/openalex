@@ -294,30 +294,20 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                 chunked_df = pd.read_parquet(chunked_path, engine='fastparquet')
 
                 parq_filename = final_parq_path / f'{chunked_path.stem}.parquet'
+                filt_df = (
+                    chunked_df
+                    [chunked_df.work_id.isin(work_ids)]
+                    .astype(dtypes[kind])
+                )
 
-                if parq_filename.exists():
-                    row_counts += (
-                        pd.read_parquet(parq_filename, columns=['work_id'], engine='fastparquet').shape[0]
-                    )
-                else:
-                    filt_df = (
-                        chunked_df
-                        [chunked_df.work_id.isin(work_ids)]
-                    )
-
-                    if kind == 'referenced_works':
-                        filt_df = (
-                            filt_df
-                            [filt_df.referenced_work_id.isin(work_ids)]
-                        )
-
-                    # filt_df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
+                if kind == 'referenced_works':
                     filt_df = (
                         filt_df
-                        .astype(dtypes[kind])
+                        [filt_df.referenced_work_id.isin(work_ids)]
                     )
-                    filt_df.to_parquet(parq_filename, engine='fastparquet')
-                    row_counts += len(filt_df)
+
+                filt_df.to_parquet(parq_filename, engine='fastparquet')
+                row_counts += len(filt_df)
 
                 pbar.update(1)
                 pbar.set_description(f'{kind!r} Rows: {row_counts:,}')
