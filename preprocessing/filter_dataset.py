@@ -237,7 +237,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
     """
     Read tables CSVs in chunks
     """
-    kinds = ['authorships', 'primary_locations', 'concepts', 'referenced_works'][: 1]
+    kinds = ['authorships', 'concepts', 'referenced_works']
     for kind in tqdm(kinds):
         print(f'{kind=}')
 
@@ -246,7 +246,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
         existing_filtered_chunks_paths = list(final_parq_path.glob('*.parquet'))
 
-        whole_table_chunks_paths = sorted((whole_parq_path / f'works_{kind}').glob('*.parquet'))
+        whole_table_chunks_paths = list((whole_parq_path / f'works_{kind}').glob('*.parquet'))
         assert len(whole_table_chunks_paths) > 0, f'{kind} chunks not found at {str(whole_table_chunks_paths)!r}'
 
         if len(existing_filtered_chunks_paths) == len(whole_table_chunks_paths):
@@ -265,11 +265,8 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
         with tqdm(total=len(unfinished_chunks_paths), colour='cyan', desc=f'{kind!r}') as pbar:
             for i, chunked_path in enumerate(unfinished_chunks_paths):
-                print()
-                if i > 10:
-                    break
                 chunked_df = pd.read_parquet(chunked_path, engine='pyarrow', filters=[[('work_id', 'in', work_ids)]])
-                print(f'{len(chunked_df)=:,}\n')
+                # print(f'{len(chunked_df)=:,}\n')
                 parq_filename = final_parq_path / f'{chunked_path.stem}.parquet'
                 filt_df = (
                     chunked_df
