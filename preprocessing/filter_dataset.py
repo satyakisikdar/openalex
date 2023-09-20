@@ -295,7 +295,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
                 if parq_filename.exists():
                     row_counts += (
-                        pd.read_parquet(parq_filename, columns=['work_id']).shape[0]
+                        pd.read_parquet(parq_filename, columns=['work_id'], engine='fastparquet').shape[0]
                     )
                 else:
                     filt_df = (
@@ -316,6 +316,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                     )
                     filt_df.to_parquet(parq_filename)
                     row_counts += len(filt_df)
+
                 pbar.update(1)
                 pbar.set_description(f'Rows: {row_counts:,}')
 
