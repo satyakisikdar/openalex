@@ -150,7 +150,7 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
     assert len(whole_work_chunks) > 0, f'Work chunks not found at {str(whole_work_chunks)!r}'
     filt_works_count = 0
 
-    with tqdm(total=len(whole_work_chunks), colour='orange') as pbar:
+    with tqdm(total=len(whole_work_chunks), colour='cyan') as pbar:
         for i, chunked_work_path in enumerate(whole_work_chunks):
             chunked_work_df = pd.read_parquet(chunked_work_path, engine='fastparquet')
             filt_works_count += process_work_chunk(df=chunked_work_df, chunk_name=chunked_work_path.stem,
