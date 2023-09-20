@@ -289,9 +289,6 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                 pbar.update(1)
                 pbar.set_description(f'{kind!r} Rows: {row_counts:,}')
 
-
-        # delete the partial parquets
-        # shutil.rmtree(parq_path / f'_works_{kind}')  # TODO: testing needed
     return
 
 
