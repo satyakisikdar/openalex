@@ -306,7 +306,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                         [filt_df.referenced_work_id.isin(work_ids)]
                     )
 
-                filt_df.to_parquet(parq_filename, engine='fastparquet')
+                filt_df.to_parquet(parq_filename, engine='pyarrow')
                 row_counts += len(filt_df)
 
                 pbar.update(1)
