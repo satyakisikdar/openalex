@@ -6,14 +6,62 @@ Filtering the entire dataset based on certain criteria
 
 Essentially, read the whole CSVs in chunks, filtering them, and writing them back out again
 """
-import sys
 from pathlib import Path
 
 import pandas as pd
 from tqdm.auto import tqdm
 
-sys.path.extend(['./', '../'])
-from preprocessing.flatten_openalex_files import DTYPES
+# STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
+STRING_DTYPE = 'string[python]'
+if STRING_DTYPE == 'string[pyarrow]':
+    assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
+
+DTYPES = {
+    'works': dict(
+        work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
+        publication_date=STRING_DTYPE, type='category', type_crossref=STRING_DTYPE,
+        cited_by_count='uint32', num_authors='uint16',
+        language=STRING_DTYPE, has_grant_info=bool,
+        num_locations='uint16', num_references='uint16',
+        is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
+        created_date=STRING_DTYPE, updated_date=STRING_DTYPE,
+    ),
+    'authorships': dict(
+        work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
+        institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
+        countries=STRING_DTYPE, publication_year='Int16', is_corresponding=STRING_DTYPE,
+    ),
+    'grants': dict(
+        work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
+    ),
+    'primary_location': dict(
+        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
+        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+    ),
+    'locations': dict(
+        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
+        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+    ),
+    'referenced_works': dict(
+        work_id='int64', referenced_work_id='int64'
+    ),
+    'related_works': dict(
+        work_id='int64', related_work_id='int64'
+    ),
+    'concepts': dict(
+        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
+        score=float
+    ),
+    'abstract': dict(
+        work_id='int64', publication_year='Int16', title=STRING_DTYPE, abstract=STRING_DTYPE,
+    ),
+    'ids': dict(
+        work_id='int64', openalex=STRING_DTYPE, doi=STRING_DTYPE, mag='Int64', pmid=STRING_DTYPE, pmcid=STRING_DTYPE
+    ),
+    'biblio': dict(
+        work_id='int64', volume=STRING_DTYPE, issue=STRING_DTYPE, first_page=STRING_DTYPE, last_page=STRING_DTYPE,
+    )
+}
 
 to_datetime_ags = dict(format='%Y-%m-%d', errors='coerce', )
 if pd.__version__ < '2':
