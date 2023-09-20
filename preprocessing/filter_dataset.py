@@ -270,7 +270,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
         existing_filtered_chunks_paths = list(final_parq_path.glob('*.parquet'))
 
-        whole_table_chunks_paths = sorted((whole_parq_path / kind).glob('*.parquet'))
+        whole_table_chunks_paths = sorted((whole_parq_path / f'works_{kind}').glob('*.parquet'))
         assert len(whole_table_chunks_paths) > 0, f'{kind} chunks not found at {str(whole_table_chunks_paths)!r}'
 
         if len(existing_filtered_chunks_paths) == len(whole_table_chunks_paths):
