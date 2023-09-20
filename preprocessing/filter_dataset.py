@@ -108,7 +108,7 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
     parq_filename = parq_path / f'_works' / f'{chunk_name}.parquet'
 
     if parq_filename.exists():
-        return pd.read_parquet(parq_filename, columns=['work_id']).size
+        return pd.read_parquet(parq_filename, columns=['work_id']).shape[0]
 
     if 'year' in df.columns.tolist():
         df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
