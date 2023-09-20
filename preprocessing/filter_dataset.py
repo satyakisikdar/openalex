@@ -6,16 +6,18 @@ Filtering the entire dataset based on certain criteria
 
 Essentially, read the whole CSVs in chunks, filtering them, and writing them back out again
 """
+import sys
 from pathlib import Path
 
 import pandas as pd
 from tqdm.auto import tqdm
 
+sys.path.extend(['./', '../'])
+from preprocessing.flatten_openalex_files import DTYPES
+
 to_datetime_ags = dict(format='%Y-%m-%d', errors='coerce', )
 if pd.__version__ < '2':
     to_datetime_ags.update({'infer_datetime_format': True})  # only for pandas < 2
-
-from preprocessing.flatten_openalex_files import DTYPES
 
 dtypes = DTYPES  # use the dtypes from the other file
 
