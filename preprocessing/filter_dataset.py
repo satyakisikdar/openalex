@@ -141,19 +141,21 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
     Write the filtered works table as a parquet
     """
     works_parq_filename = parq_path / 'works'
+    existing_filtered_chunks_paths = list(works_parq_filename.glob('*.parquet'))
 
-    if works_parq_filename.exists():
-        print(f'Filtered works parquet exists at {str(works_parq_filename)}.')
+    whole_work_chunks_paths = list(whole_works_parq_path.glob('*.parquet'))  # sorted so pieces dont get repeated
+    assert len(whole_work_chunks_paths) > 0, f'Work chunks not found at {str(whole_work_chunks_paths)!r}'
+
+    if len(existing_filtered_chunks_paths) == len(whole_work_chunks_paths):
+        print(f'Complete filtered works found at {str(works_parq_filename)!r}')
         return
 
-    whole_work_chunks_paths = sorted(whole_works_parq_path.glob('*.parquet'))  # sorted so pieces dont get repeated
-    assert len(whole_work_chunks_paths) > 0, f'Work chunks not found at {str(whole_work_chunks_paths)!r}'
     filt_works_count = 0
 
     unfinished_chunks_paths = []
     for whole_work_chunk_path in whole_work_chunks_paths:
         stem = whole_work_chunk_path.stem
-        if (parq_path / '_works' / f'{stem}.parquet').exists():
+        if (parq_path / 'works' / f'{stem}.parquet').exists():
             continue
         unfinished_chunks_paths.append(whole_work_chunk_path)
     print(f'{len(unfinished_chunks_paths)=:,}')
@@ -166,13 +168,6 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
             pbar.set_description(f'Filtered works: {filt_works_count:,}')
             pbar.update(1)
 
-
-    # write a single parquet for all the parts
-    split_df = pd.read_parquet(parq_path / f'_works', engine='fastparquet')
-    split_df.to_parquet(works_parq_filename)
-
-    # delete the partial parquets
-    # shutil.rmtree(parq_path / f'_works')  # todo: testing needed
     return
 
 
