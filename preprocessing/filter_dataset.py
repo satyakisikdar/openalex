@@ -95,7 +95,7 @@ dtypes = DTYPES  # use the dtypes from the other file
 # }
 
 
-def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
+def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
     """
     Process each chunked df with index idx
     """
@@ -105,7 +105,7 @@ def process_work_chunk(df, idx, parq_path, year_range=(2012, 2022)):
     start_year, end_year = year_range  # year range
 
     (parq_path / f'_works').mkdir(exist_ok=True, parents=True)  # create necessary dirs
-    parq_filename = parq_path / f'_works' / f'part-{idx}.parquet'
+    parq_filename = parq_path / f'_works' / f'{chunk_name}.parquet'
 
     if parq_filename.exists():
         return
@@ -151,7 +151,7 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
         if i > 20:
             return
         chunked_work_df = pd.read_parquet(chunked_work_path, engine='fastparquet')
-        process_work_chunk(df=chunked_work_df, idx=i, parq_path=parq_path)
+        process_work_chunk(df=chunked_work_df, chunk_name=chunked_work_path.stem, parq_path=parq_path)
 
     # write a single parquet for all the parts
     split_df = pd.read_parquet(parq_path / f'_works')
