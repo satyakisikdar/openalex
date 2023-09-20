@@ -141,7 +141,8 @@ def write_filtered_works_table_v2(whole_works_parq_path, parq_path):
     whole_work_chunks = list(whole_works_parq_path.glob('*.parquet'))
     assert len(whole_work_chunks) > 0, f'Work chunks not found at {str(whole_work_chunks)!r}'
 
-    for i, chunked_work_df in enumerate(tqdm(whole_work_chunks)):
+    for i, chunked_work_path in enumerate(tqdm(whole_work_chunks)):
+        chunked_work_df = pd.read_parquet(chunked_work_path, engine='fastparquet')
         process_work_chunk(df=chunked_work_df, idx=i, parq_path=parq_path)
 
     # write a single parquet for all the parts
