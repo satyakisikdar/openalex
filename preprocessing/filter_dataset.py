@@ -268,7 +268,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                 print()
                 if i > 10:
                     break
-                chunked_df = pd.read_parquet(chunked_path, engine='fastparquet')
+                chunked_df = pd.read_parquet(chunked_path, engine='pyarrow', filters=[[('work_id', 'in', work_ids)]])
                 print(f'{len(chunked_df)=:,}')
                 parq_filename = final_parq_path / f'{chunked_path.stem}.parquet'
                 filt_df = (
