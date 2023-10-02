@@ -20,6 +20,21 @@ from unidecode import unidecode_expect_ascii
 from src.globals import path_type
 
 
+def string_to_bool(st, default_value=False):
+    """
+    Convert string to boolean. If NA, use default value
+    """
+    if isinstance(st, bool):
+        return st
+    elif pd.isna(st):
+        return default_value
+    elif isinstance(st, str):
+        return eval(st)
+
+    raise NotImplementedError(f'{st=!r} of type {type(st)} unclear.')
+    return
+
+
 def conf_interval(data, aggfunc='mean', errorfunc=('ci', 95), 
                   return_errors=False):
     """
