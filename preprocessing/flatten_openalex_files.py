@@ -11,9 +11,12 @@ import gzip
 import json
 import os
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Union, Optional
+
+warnings.simplefilter(action='ignore', category=FutureWarning)  # suppress pandas future warnings
 
 import orjson  # faster JSON library
 import pandas as pd
@@ -21,7 +24,7 @@ from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
 from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest, \
-    parallel_async
+    parallel_async, string_to_bool
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
@@ -225,7 +228,13 @@ csv_files = \
         'open_access': {
             'name': os.path.join(CSV_DIR, 'works_open_access.csv.gz'),
             'columns': [
-                'work_id', 'is_oa', 'oa_status', 'oa_url'
+                'work_id', 'is_oa', 'oa_status', 'oa_url', 'any_repository_has_fulltext',
+            ]
+        },
+        'best_oa_location': {
+            'name': os.path.join(CSV_DIR, 'works_best_oa_location.csv.gz'),
+            'columns': [
+                'work_id', 'pdf_url', 'is_oa', 'is_accepted', 'is_published', 'source_id', 'source_name', 'source_type'
             ]
         },
         'referenced_works': {
@@ -278,6 +287,65 @@ csv_files = \
             },
         },
     }
+
+# STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
+STRING_DTYPE = 'string[python]'
+if STRING_DTYPE == 'string[pyarrow]':
+    assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
+
+DTYPES = {
+    'works': dict(
+        work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
+        publication_date=STRING_DTYPE, type='category', type_crossref=STRING_DTYPE,
+        cited_by_count='uint32', num_authors='uint16',
+        language=STRING_DTYPE, has_grant_info=bool,
+        num_locations='uint16', num_references='uint16',
+        is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
+        created_date=STRING_DTYPE, updated_date=STRING_DTYPE,
+    ),
+    'authorships': dict(
+        work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
+        institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
+        countries=STRING_DTYPE, publication_year='Int16', is_corresponding=STRING_DTYPE,
+    ),
+    'grants': dict(
+        work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
+    ),
+    'open_access': dict(
+        work_id='int64', is_oa=bool, oa_status='category', oa_url=STRING_DTYPE, any_repository_has_fulltext=bool,
+    ),
+    'best_oa_location': dict(
+        work_id='int64', is_oa=bool, is_accepted=bool, is_published=bool, pdf_url=STRING_DTYPE,
+        source_id='Int64', source_name=STRING_DTYPE, source_type='category',
+    ),
+    'primary_location': dict(
+        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
+        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+    ),
+    'locations': dict(
+        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
+        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+    ),
+    'referenced_works': dict(
+        work_id='int64', referenced_work_id='int64'
+    ),
+    'related_works': dict(
+        work_id='int64', related_work_id='int64'
+    ),
+    'concepts': dict(
+        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
+        score=float
+    ),
+    'abstract': dict(
+        work_id='int64', publication_year='Int16', title=STRING_DTYPE, abstract=STRING_DTYPE,
+    ),
+    'ids': dict(
+        work_id='int64', openalex=STRING_DTYPE, doi=STRING_DTYPE, mag='Int64', pmid=STRING_DTYPE, pmcid=STRING_DTYPE
+    ),
+    'biblio': dict(
+        work_id='int64', volume=STRING_DTYPE, issue=STRING_DTYPE, first_page=STRING_DTYPE, last_page=STRING_DTYPE,
+    )
+}
 
 
 def read_csvs(paths):
@@ -933,7 +1001,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
         works_jsonls = works_jsonl.readlines()
 
     work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
-    concept_rows, mesh_rows, oa_rows, refs_rows, rels_rows, abstract_rows, grant_rows = [], [], [], [], [], [], []
+    concept_rows, mesh_rows, oa_rows, best_oa_loc_rows, refs_rows, rels_rows, abstract_rows, grant_rows = [], [], [], [], [], [], [], []
     desc = 'Parsing JSONs...' + '/'.join(Path(jsonl_file_name).parts[-2:])
 
     for work_json in tqdm(works_jsonls, desc=desc, unit=' line', unit_scale=True, colour='blue', leave=False):
@@ -1017,6 +1085,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
 
         work['num_authors'] = num_authors
 
+        ## primary location
         if primary_location := (work.get('primary_location') or {}):
             if primary_location.get('source') and primary_location.get('source').get('id'):
                 primary_location_d = primary_location.get('source', {})
@@ -1048,6 +1117,28 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
                     })
 
         work['num_locations'] = num_locations
+
+        ## open access
+        if oa := work.get('open_access'):
+            oa['work_id'] = work_id
+            oa['is_oa'] = string_to_bool(oa.get('is_oa'))
+            oa['any_repository_has_fulltext'] = string_to_bool(oa.get('any_repository_has_fulltext'))
+            oa_rows.append(oa)
+
+        ## best oa location
+        if best_oa_location := work.get('best_oa_location'):
+            if best_oa_location.get('source') and best_oa_location.get('source').get('id'):
+                best_oa_location_d = best_oa_location.get('source', {})
+                best_oa_loc_rows.append({
+                    'work_id': work_id,
+                    'pdf_url': best_oa_location['pdf_url'],
+                    'is_oa': string_to_bool(best_oa_location.get('is_oa')),
+                    'is_accepted': string_to_bool(best_oa_location.get('is_accepted')),
+                    'is_published': string_to_bool(best_oa_location.get('is_published')),
+                    'source_id': convert_openalex_id_to_int(best_oa_location_d.get('id')),
+                    'source_name': best_oa_location_d.get('display_name'),
+                    'source_type': best_oa_location_d.get('type'),
+                })
 
         # biblio
         if biblio := work.get('biblio'):
@@ -1103,6 +1194,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
                     'related_work_id': related_work
                 })
 
+
         # abstracts
         if (abstract_inv_index := work.get('abstract_inverted_index')) is not None:
             if 'InvertedIndex' in abstract_inv_index:  # new format of nested abstract dictionaries
@@ -1119,9 +1211,9 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
 
     # write the batched parquets here
     kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
-             'referenced_works', 'related_works', 'abstracts', 'grants']
+             'referenced_works', 'related_works', 'abstracts', 'grants', 'open_access', 'best_oa_location']
     row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
-                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows, grant_rows]
+                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows, grant_rows, oa_rows, best_oa_loc_rows]
 
     lines = []
     with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
@@ -1148,7 +1240,7 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
     skip_ids = get_skip_ids('works')
 
     kinds = ['works', 'ids', 'grants', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
-             'referenced_works', 'related_works', 'abstracts']
+             'referenced_works', 'related_works', 'abstracts', 'open_access', 'best_oa_location']
     for kind in kinds:
         # ensure directories exist
         if kind != 'works':
@@ -1164,9 +1256,10 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
     if finished_files_txt_path.exists():
         finished_files = set(
             pd.read_csv(finished_files_txt_path)  # load the pickle
+            .drop_duplicates(subset=['path', 'table'], keep='last')  # drop duplicates
             .groupby('path', as_index=False)
             .count()
-            .query('records==12')  # finished files will have 12 tables
+            .query('records==14')  # finished files will have 14 tables
             .path
         )
         print(f'{len(finished_files)} existing files found!')
@@ -1207,59 +1300,6 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1):
         parallel_async(func=process_work_json, args=args, num_workers=threads)
 
     return
-
-
-# STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
-STRING_DTYPE = 'string[python]'
-if STRING_DTYPE == 'string[pyarrow]':
-    assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
-
-DTYPES = {
-    'works': dict(
-        work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
-        publication_date=STRING_DTYPE, type='category', type_crossref=STRING_DTYPE,
-        cited_by_count='uint32', num_authors='uint16',
-        language=STRING_DTYPE, has_grant_info=bool,
-        num_locations='uint16', num_references='uint16',
-        is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
-        created_date=STRING_DTYPE, updated_date=STRING_DTYPE,
-    ),
-    'authorships': dict(
-        work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
-        institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
-        countries=STRING_DTYPE, publication_year='Int16', is_corresponding=STRING_DTYPE,
-    ),
-    'grants': dict(
-        work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
-    ),
-    'primary_location': dict(
-        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
-        license=STRING_DTYPE, is_oa=STRING_DTYPE,
-    ),
-    'locations': dict(
-        work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
-        license=STRING_DTYPE, is_oa=STRING_DTYPE,
-    ),
-    'referenced_works': dict(
-        work_id='int64', referenced_work_id='int64'
-    ),
-    'related_works': dict(
-        work_id='int64', related_work_id='int64'
-    ),
-    'concepts': dict(
-        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
-        score=float
-    ),
-    'abstract': dict(
-        work_id='int64', publication_year='Int16', title=STRING_DTYPE, abstract=STRING_DTYPE,
-    ),
-    'ids': dict(
-        work_id='int64', openalex=STRING_DTYPE, doi=STRING_DTYPE, mag='Int64', pmid=STRING_DTYPE, pmcid=STRING_DTYPE
-    ),
-    'biblio': dict(
-        work_id='int64', volume=STRING_DTYPE, issue=STRING_DTYPE, first_page=STRING_DTYPE, last_page=STRING_DTYPE,
-    )
-}
 
 
 def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: bool = False,
@@ -1342,15 +1382,15 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
 
 if __name__ == '__main__':
     # flatten_concepts()  # takes about 30s
-    flatten_institutions()  # takes about 20s
+    # flatten_institutions()  # takes about 20s
     # flatten_publishers()
     # flatten_sources()
     files_to_process = 'all'  # to do everything
-    # files_to_process = 10  # or any other number
-    # threads = 1
-    threads = 10
+    files_to_process = 20  # or any other number
+    threads = 1
+    # threads = 10
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
-    # flatten_works_v2(files_to_process=files_to_process, threads=threads)  # takes about 20 hours  ~6 mins per file
+    flatten_works_v2(files_to_process=files_to_process, threads=threads)  # takes about 20 hours  ~6 mins per file
