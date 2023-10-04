@@ -185,13 +185,17 @@ csv_files = \
         'primary_location': {
             'name': os.path.join(CSV_DIR, 'works_primary_location.csv.gz'),
             'columns': [
-                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'is_oa',
+                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
+                'pdf_url',
+                'is_oa', 'is_accepted', 'is_published'
             ]
         },
         'locations': {
             'name': os.path.join(CSV_DIR, 'works_locations.csv.gz'),
             'columns': [
-                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'is_oa',
+                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
+                'pdf_url',
+                'is_oa', 'is_accepted', 'is_published'
             ]
         },
         'authorships': {
@@ -320,11 +324,13 @@ DTYPES = {
     ),
     'primary_location': dict(
         work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
-        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+        license=STRING_DTYPE, landing_page_url=STRING_DTYPE, pdf_url=STRING_DTYPE,
+        is_oa=bool, is_accepted=bool, is_published=bool,
     ),
     'locations': dict(
         work_id='int64', source_id='Int64', source_name=STRING_DTYPE, source_type='category', version=STRING_DTYPE,
-        license=STRING_DTYPE, is_oa=STRING_DTYPE,
+        license=STRING_DTYPE, landing_page_url=STRING_DTYPE, pdf_url=STRING_DTYPE,
+        is_oa=bool, is_accepted=bool, is_published=bool,
     ),
     'referenced_works': dict(
         work_id='int64', referenced_work_id='int64'
@@ -1330,11 +1336,11 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
         if kind == 'abstracts':
             missing = make_abstracts
         is_missing_rows[kind] = missing
-        if missing:
-            print(f'Missing {kind!r} for {"/".join(jsonl_filename.parts[-2:])!r}')
+        # if missing:
+        #     print(f'Missing {kind!r} for {"/".join(jsonl_filename.parts[-2:])!r}')
 
-    desc = 'Parsing JSONs...' + '/'.join(Path(jsonl_filename).parts[-2:])
-
+    desc = 'Parsing...' + '/'.join(Path(jsonl_filename).parts[-2:])
+    desc = desc.replace('updated_date=', '')
     if any(is_missing_rows.values()):
         with gzip.open(jsonl_filename, 'r') as works_jsonl:
             works_jsonls = works_jsonl.readlines()
@@ -1439,9 +1445,13 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
                         'source_id': convert_openalex_id_to_int(primary_location_d.get('id')),
                         'source_name': primary_location_d.get('display_name'),
                         'source_type': primary_location_d.get('type'),
-                        'is_oa': primary_location.get('is_oa'),
                         'version': primary_location.get('version'),
                         'license': primary_location.get('license'),
+                        'landing_page_url': primary_location.get('landing_page_url'),
+                        'pdf_url': primary_location.get('pdf_url'),
+                        'is_oa': string_to_bool(primary_location.get('is_oa')),
+                        'is_accepted': string_to_bool(primary_location.get('is_accepted')),
+                        'is_published': string_to_bool(primary_location.get('is_published')),
                     })
 
         # locations
@@ -1456,9 +1466,13 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
                             'source_id': convert_openalex_id_to_int(location_d.get('id')),
                             'source_name': location_d.get('display_name'),
                             'source_type': location_d.get('type'),
-                            'is_oa': location.get('is_oa'),
                             'version': location.get('version'),
                             'license': location.get('license'),
+                            'landing_page_url': location.get('landing_page_url'),
+                            'pdf_url': location.get('pdf_url'),
+                            'is_oa': string_to_bool(location.get('is_oa')),
+                            'is_accepted': string_to_bool(location.get('is_accepted')),
+                            'is_published': string_to_bool(location.get('is_published')),
                         })
         else:
             num_locations = pd.NA
@@ -1591,7 +1605,8 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
     return len(work_rows)
 
 
-def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_abstracts=False, overwrite=False):
+def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_abstracts=False, overwrite=False,
+                     recompute_tables=[]):
     """
     SKIP over creating tables that already exists to save on memory
     """
@@ -1613,7 +1628,9 @@ def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_
 
     if finished_files_txt_path.exists():
         finished_files = set(
-            pd.read_csv(finished_files_txt_path)  # load the pickle
+            pd.read_csv(finished_files_txt_path, parse_dates=['timestamp'])  # load the pickle
+            .query(
+                '~(table.isin(@recompute_tables) & timestamp<"2023-10-01")')  # filter out rows that are old + discard
             .drop_duplicates(subset=['path', 'table'], keep='last')  # drop duplicates
             .groupby('path', as_index=False)
             .count()
@@ -1745,19 +1762,19 @@ if __name__ == '__main__':
     # flatten_institutions()  # takes about 20s
     # flatten_publishers()
     # flatten_sources()
+    # recompute_tables = []
+    recompute_tables = ['locations', 'primary_location']
 
     # w/ abstracts => 200 lines/s
 
     files_to_process = 'all'  # to do everything
-    # files_to_process = 2  # or any other number
-    threads = 12
+    # files_to_process = 5  # or any other number
+    threads = 1
 
-    abstracts = False
-    overwrite = False
-    # threads = 10
+    abstracts, overwrite = False, False
 
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
     flatten_works_v3(files_to_process=files_to_process, threads=threads, make_abstracts=abstracts,
-                     overwrite=overwrite)  # takes about 20 hours  ~6 mins per file
+                     overwrite=overwrite, recompute_tables=recompute_tables)  # takes about 20 hours  ~6 mins per file
