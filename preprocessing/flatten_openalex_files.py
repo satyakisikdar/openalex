@@ -1338,7 +1338,7 @@ def _flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1, make
     return
 
 
-def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, inst_info_d,
+def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filename, finished_files_txt_path, inst_info_d,
                          overwrite_existing=False, make_abstracts=False):
     """
     Process each work JSON lines file in parallel
@@ -1444,16 +1444,29 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, inst
             if authorships := work.get('authorships'):
                 for authorship in authorships:
                     if author_id := authorship.get('author', {}).get('id'):
-                        num_authors += 1  # increase the count of authors
                         author_id = convert_openalex_id_to_int(author_id)
+
+                        if author_id in author_skip_ids:  # skip if author has been deleted
+                            continue
+
+                        num_authors += 1  # increase the count of authors
+
                         author_name = authorship.get('author', {}).get('display_name', pd.NA)
                         raw_author_name = authorship.get('raw_author_name', pd.NA)
 
                         # join list of country codes with ;
                         # countries = ';'.join(authorship.get('countries', []))
 
-                        institutions = authorship.get('institutions')
+                        # institutions = authorship.get('institutions')  # <- OLD way
+
+                        institutions = []  # <- NEW way (Jan 26)
+                        for i in authorship.get('institutions'):
+                            inst_id = convert_openalex_id_to_int(i.get('id'))
+                            if inst_id not in inst_skip_ids:  # TODO: needs testing
+                                institutions.append(i)
+
                         institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
+
                         institution_ids = [i for i in institution_ids if i]
                         institution_ids = institution_ids or [None]
                         has_complete_institution_info = (institution_ids != [None])
@@ -1481,6 +1494,8 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, inst
                                     country_code = country_code
                                 else:
                                     inst_id = convert_openalex_id_to_int(lin_inst_id)
+                                    if inst_id in inst_skip_ids:  # old inst id has been deleted
+                                        continue
                                     inst_name = inst_info_d['institution_name'].get(inst_id)
                                     country_code = inst_info_d['country_code'].get(inst_id)
 
@@ -1685,7 +1700,8 @@ def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_
     """
     SKIP over creating tables that already exists to save on memory
     """
-    skip_ids = get_skip_ids('works')
+    skip_ids, author_skip_ids, inst_skip_ids = get_skip_ids('works'), get_skip_ids('authors'), get_skip_ids(
+        'institutions')
 
     kinds = ['works', 'ids', 'grants', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
              'referenced_works', 'related_works', 'abstracts', 'open_access', 'best_oa_location']
@@ -1744,12 +1760,16 @@ def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_
             if i >= files_to_process:
                 break
             if threads > 1:
-                args.append((skip_ids, jsonl_file_name, finished_files_txt_path, overwrite, make_abstracts))
+                args.append((skip_ids, author_skip_ids, inst_skip_ids, jsonl_file_name, finished_files_txt_path,
+                             inst_info_d, overwrite, make_abstracts))
             else:
-                records = process_work_json_v2(skip_ids=skip_ids, jsonl_filename=jsonl_file_name,
-                                               overwrite_existing=overwrite,
-                                               finished_files_txt_path=finished_files_txt_path,
-                                               make_abstracts=make_abstracts, inst_info_d=inst_info_d)
+                records = process_work_json_v2(
+                    skip_ids=skip_ids, author_skip_ids=author_skip_ids, inst_skip_ids=inst_skip_ids,
+                    jsonl_filename=jsonl_file_name,
+                    overwrite_existing=overwrite,
+                    finished_files_txt_path=finished_files_txt_path,
+                    make_abstracts=make_abstracts, inst_info_d=inst_info_d,
+                )
                 total_works_count += records
                 pbar.update(1)
                 pbar.set_postfix_str(f'{total_works_count:,} works')
