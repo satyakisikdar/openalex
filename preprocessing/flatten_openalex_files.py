@@ -396,10 +396,10 @@ def get_skip_ids(kind):
             .id
         )
         skip_ids = {convert_openalex_id_to_int(id_) for id_ in skip_ids}
-        print(f'{kind!r} {len(skip_ids):,} merged IDs')
     else:
         skip_ids = set()
     skip_ids.add(4285719527)  # this is the deleted work from OpenAlex
+    print(f'{kind!r} {len(skip_ids):,} merged IDs')
     return skip_ids
 
 
