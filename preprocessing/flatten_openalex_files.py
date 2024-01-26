@@ -3,7 +3,15 @@ Flatten Openalex JSON line files into individual CSVs.
 Original script at https://github.com/ourresearch/openalex-documentation-scripts/blob/main/flatten-openalex-jsonl.py
 """
 
-# TODO: add institution names to authorships table
+# TODO: add institution names to authorships table, raw_author_names, raw_author_inst too
+## TODO (Dec 9)
+## ~~Add new tables for works - works_keywords,~~
+## new attributes for works_authorships countries, works has_fulltext, corresponding author ids, corresponding inst ids
+## ~~institutional lineages table~~
+
+## TODO (Dec 15) (other)
+## Writing to piecewise parquets is slow.. Try compression (brotli, lzo, or NONE) for the initial extraction from flatten_json
+## add columns to the `works` table: `has_author_info`, `has_institution_info`, `has_abstract`, `has_open_access`
 
 import csv
 import glob
@@ -28,16 +36,14 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
 
 BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'aug-2023'
+MONTH = 'dec-2023'
+
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
 CSV_DIR.mkdir(parents=True, exist_ok=True)
 PARQ_DIR.mkdir(parents=True, exist_ok=True)
 
 FILES_PER_ENTITY = int(os.environ.get('OPENALEX_DEMO_FILES_PER_ENTITY', '0'))
-
-# TODO: save the partially completed work/author IDs to a pickle while processing a file
-# TODO: skip over those IDs on the re-run to prevent repeats
 
 csv_files = \
     {
@@ -164,11 +170,17 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works.csv.gz'),
             'columns': [
                 'work_id', 'doi', 'title', 'publication_year', 'publication_date', 'type', 'type_crossref',
-                'cited_by_count', 'num_authors', 'language', 'has_grant_info', 'num_locations', 'num_references',
-                'is_retracted', 'is_paratext', 'created_date', 'updated_date'
+                'cited_by_count', 'num_authors', 'num_locations', 'num_references',
+                'language', 'has_complete_institution_info', 'has_grant_info', 'has_keywords', 'is_retracted',
+                'is_paratext', 'created_date', 'updated_date',
             ]
         },
-
+        'keywords': {
+            'name': os.path.join(CSV_DIR, 'works_keywords.csv.gz'),
+            'columns': [
+                'work_id', 'keyword', 'score',
+            ],
+        },
         'grants': {
             'name': os.path.join(CSV_DIR, 'works_grants.csv.gz'),
             'columns': [
@@ -194,15 +206,16 @@ csv_files = \
             'name': os.path.join(CSV_DIR, 'works_locations.csv.gz'),
             'columns': [
                 'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
-                'pdf_url',
-                'is_oa', 'is_accepted', 'is_published'
+                'pdf_url', 'is_oa', 'is_accepted', 'is_published'
             ]
         },
         'authorships': {
             'name': os.path.join(CSV_DIR, 'works_authorships.csv.gz'),
             'columns': [
-                'work_id', 'author_position', 'author_id', 'author_name', 'institution_id',
-                'institution_name', 'raw_affiliation_string', 'countries', 'publication_year', 'is_corresponding',
+                'work_id', 'author_position', 'author_id', 'author_name', 'raw_author_name',
+                'institution_lineage_level',
+                'institution_id', 'institution_name', 'raw_affiliation_string',
+                'country_code', 'publication_year', 'is_corresponding',
             ]
         },
         'biblio': {
@@ -302,15 +315,20 @@ DTYPES = {
         work_id='int64', doi=STRING_DTYPE, title=STRING_DTYPE, publication_year='Int16',
         publication_date=STRING_DTYPE, type='category', type_crossref=STRING_DTYPE,
         cited_by_count='uint32', num_authors='uint16',
-        language=STRING_DTYPE, has_grant_info=bool,
+        language=STRING_DTYPE,
+        has_complete_institution_info=bool, has_grant_info=bool, has_keywords=bool,
         num_locations='uint16', num_references='uint16',
         is_retracted=STRING_DTYPE, is_paratext=STRING_DTYPE,
         created_date=STRING_DTYPE, updated_date=STRING_DTYPE,
     ),
+    'keywords': dict(
+        work_id='int64', keyword=STRING_DTYPE, score=float,
+    ),
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
-        institution_id='Int64', institution_name=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE,
-        countries=STRING_DTYPE, publication_year='Int16', is_corresponding=STRING_DTYPE,
+        raw_author_name=STRING_DTYPE,
+        institution_lineage_level='Int16', institution_id='Int64', institution_name=STRING_DTYPE,
+        country_code=STRING_DTYPE, raw_affiliation_string=STRING_DTYPE, publication_year='Int16', is_corresponding=bool,
     ),
     'grants': dict(
         work_id='int64', funder_id=STRING_DTYPE, funder_name=STRING_DTYPE, award_id=STRING_DTYPE,
@@ -340,7 +358,7 @@ DTYPES = {
     ),
     'concepts': dict(
         work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
-        score=float
+        score=float,
     ),
     'abstracts': dict(
         work_id='int64', publication_year='Int16', title=STRING_DTYPE, abstract=STRING_DTYPE,
@@ -362,7 +380,7 @@ def read_csvs(paths):
     """
     Return the concatenated df after reaching CSVs from paths
     """
-    df = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+    df = pd.concat([pd.read_csv(path, engine='c') for path in paths], ignore_index=True)
     return df
 
 
@@ -381,7 +399,7 @@ def get_skip_ids(kind):
         print(f'{kind!r} {len(skip_ids):,} merged IDs')
     else:
         skip_ids = set()
-
+    skip_ids.add(4285719527)  # this is the deleted work from OpenAlex
     return skip_ids
 
 
@@ -1003,7 +1021,7 @@ def flatten_authors_hints(files_to_process: Union[str, int] = 'all'):
     return
 
 
-def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_txt_path, make_abstracts=True):
+def _process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_txt_path, make_abstracts=True):
     """
     Process each work JSON lines file in parallel
     """
@@ -1244,7 +1262,7 @@ def process_work_json(skip_ids, jsonl_file_name, finished_files, finished_files_
     return len(work_rows)
 
 
-def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1, make_abstracts=True):
+def _flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1, make_abstracts=True):
     """
     New flattening function that only writes Parquets, uses the Sources
     """
@@ -1302,7 +1320,7 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1, make_
                 records = process_work_json(skip_ids=skip_ids, jsonl_file_name=jsonl_file_name,
                                             finished_files=finished_files,
                                             finished_files_txt_path=finished_files_txt_path,
-                                            make_abstracts=make_abstracts)
+                                            make_abstracts=make_abstracts, inst_info_d=inst_info_d)
                 total_works_count += records
                 pbar.update(1)
                 pbar.set_postfix_str(f'{total_works_count:,} works')
@@ -1314,8 +1332,8 @@ def flatten_works_v2(files_to_process: Union[str, int] = 'all', threads=1, make_
     return
 
 
-def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, overwrite_existing=False,
-                         make_abstracts=False):
+def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, inst_info_d,
+                         overwrite_existing=False, make_abstracts=False):
     """
     Process each work JSON lines file in parallel
     Skip over already processed tables
@@ -1324,6 +1342,8 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
 
     work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows = [], [], [], [], [], []
     concept_rows, mesh_rows, oa_rows, best_oa_loc_rows, refs_rows, rels_rows, abstract_rows, grant_rows = [], [], [], [], [], [], [], []
+    keywords_rows = []
+    # NEW: works_keywords table
 
     is_missing_rows = {}  # dictionary where keys are table names and values are True if the table is missing rows
 
@@ -1332,6 +1352,7 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
         parq_filename = PARQ_DIR / kind_ / (
                 '_'.join(jsonl_filename.parts[-2:]).replace('updated_date=', '').replace('.gz', '')
                 + '.parquet')
+        # missing if parquet filename doesnt exist or overwrite flag is ON
         missing = (not parq_filename.exists()) or overwrite_existing
         if kind == 'abstracts':
             missing = make_abstracts
@@ -1363,7 +1384,7 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
             continue
 
         num_authors, num_references, num_locations = 0, 0, 0
-        type_crossref = work.get('type_crossref')
+        type_crossref = work.get('type_crossref', pd.NA)
         work['type_crossref'] = type_crossref
         # if type_crossref is not None:
         #     print(f'{work_id=} {jsonl_file_name=} {type_crossref=}')
@@ -1378,7 +1399,22 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
             title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
         work['title'] = title
 
-        work['language'] = work.get('language')  # works languages
+        work['language'] = work.get('language', pd.NA)  # works languages
+
+        ## works keywords
+        if is_missing_rows['keywords']:
+            has_keywords = False
+            if keywords := work.get('keywords'):
+                for keyword_d in keywords:
+                    has_keywords = True
+                    keywords_rows.append({
+                        'work_id': work_id,
+                        'keyword': keyword_d.get('keyword', pd.NA),
+                        'score': keyword_d.get('score', pd.NA),
+                    })
+        else:
+            has_keywords = pd.NA
+        work['has_keywords'] = has_keywords
 
         ## works grants
         if is_missing_rows['grants']:
@@ -1389,8 +1425,8 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
                     grant_rows.append({
                         'work_id': work_id,
                         'funder_id': convert_openalex_id_to_int(grant_d.get('funder')),
-                        'funder_name': grant_d.get('funder_display_name'),
-                        'award_id': grant_d.get('award_id'),
+                        'funder_name': grant_d.get('funder_display_name', pd.NA),
+                        'award_id': grant_d.get('award_id', pd.NA),
                     })
         else:
             has_grant = pd.NA
@@ -1398,41 +1434,70 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
 
         # authorships
         if is_missing_rows['authorships']:
+            has_complete_institution_info = False
             if authorships := work.get('authorships'):
                 for authorship in authorships:
                     if author_id := authorship.get('author', {}).get('id'):
                         num_authors += 1  # increase the count of authors
                         author_id = convert_openalex_id_to_int(author_id)
-                        author_name = authorship.get('author', {}).get('display_name')
+                        author_name = authorship.get('author', {}).get('display_name', pd.NA)
+                        raw_author_name = authorship.get('raw_author_name', pd.NA)
 
                         # join list of country codes with ;
-                        countries = ';'.join(authorship.get('countries', []))
+                        # countries = ';'.join(authorship.get('countries', []))
 
                         institutions = authorship.get('institutions')
                         institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
                         institution_ids = [i for i in institution_ids if i]
                         institution_ids = institution_ids or [None]
+                        has_complete_institution_info = (institution_ids != [None])
 
                         institution_names = [i.get('display_name') for i in institutions]
                         institution_names = [i for i in institution_names if i]
                         institution_names = institution_names or [None]
 
-                        for institution_id, institution_name in zip(institution_ids, institution_names):
-                            authorship_rows.append({
-                                'work_id': work_id,
-                                'author_position': authorship.get('author_position'),
-                                'author_id': author_id,
-                                'author_name': author_name,
-                                'institution_id': institution_id,
-                                'institution_name': institution_name,
-                                'raw_affiliation_string': authorship.get('raw_affiliation_string'),
-                                'countries': countries,
-                                'publication_year': work.get('publication_year'),
-                                'is_corresponding': authorship.get('is_corresponding'),
-                            })
+                        country_codes = [i.get('country_code') for i in institutions]
+                        country_codes = [i for i in country_codes if i]
+                        country_codes = country_codes or [None]
+
+                        # TODO: test the lineages (Jan 12)
+                        lineages = [i.get('lineage') for i in institutions]
+                        lineages = [i for i in lineages if i]
+                        lineages = lineages or [[None]]
+
+                        for institution_id, institution_name, country_code, lineage_inst in zip(
+                                institution_ids, institution_names, country_codes, lineages,
+                        ):
+                            for level, lin_inst_id in enumerate(lineages):
+                                if level == 0:
+                                    inst_id = institution_id
+                                    inst_name = institution_name
+                                    country_code = country_code
+                                else:
+                                    inst_id = convert_openalex_id_to_int(lin_inst_id)
+                                    inst_name = inst_info_d['institution_name'].get(inst_id)
+                                    country_code = inst_info_d['country_code'].get(inst_id)
+
+                                authorship_rows.append({
+                                    'work_id': work_id,
+                                    'publication_year': work.get('publication_year', pd.NA),
+                                    'author_position': authorship.get('author_position'),
+                                    'author_id': author_id,
+                                    'author_name': author_name,
+                                    'raw_author_name': raw_author_name,
+                                    'is_corresponding': authorship.get('is_corresponding', pd.NA),
+                                    'institution_lineage_level': level,
+                                    'institution_id': inst_id,
+                                    'institution_name': inst_name,
+                                    'raw_affiliation_string': authorship.get('raw_affiliation_string', pd.NA),
+                                    'country_code': country_code,
+                                })
+
         else:
             num_authors = pd.NA
+            has_complete_institution_info = pd.NA
         work['num_authors'] = num_authors
+        work['has_complete_institution_info'] = has_complete_institution_info
 
         ## primary location
         if is_missing_rows['primary_location']:
@@ -1538,12 +1603,14 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
                 mesh['work_id'] = work_id
                 mesh_rows.append(mesh)
 
-        # referenced_works
+        # referenced_works  -- make sure referenced works are not in skip_ids
         if is_missing_rows['referenced_works']:
             for referenced_work in work.get('referenced_works'):
                 if referenced_work:
                     num_references += 1
                     referenced_work = convert_openalex_id_to_int(referenced_work)
+                    if referenced_work in skip_ids:
+                        continue
                     refs_rows.append({
                         'work_id': work_id,
                         'referenced_work_id': referenced_work
@@ -1558,7 +1625,8 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
             for related_work in work.get('related_works'):
                 if related_work:
                     related_work = convert_openalex_id_to_int(related_work)
-
+                    if related_work in skip_ids:  # skip if related work has been deleted
+                        continue
                     rels_rows.append({
                         'work_id': work_id,
                         'related_work_id': related_work
@@ -1581,9 +1649,10 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
 
     # write the batched parquets here
     kinds = ['works', 'ids', 'primary_location', 'locations', 'authorships', 'biblio', 'concepts', 'mesh',
-             'referenced_works', 'related_works', 'abstracts', 'grants', 'open_access', 'best_oa_location']
+             'referenced_works', 'related_works', 'abstracts', 'grants', 'open_access', 'best_oa_location', 'keywords']
     row_names = [work_rows, id_rows, primary_location_rows, location_rows, authorship_rows, biblio_rows,
-                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows, grant_rows, oa_rows, best_oa_loc_rows]
+                 concept_rows, mesh_rows, refs_rows, rels_rows, abstract_rows, grant_rows, oa_rows, best_oa_loc_rows,
+                 keywords_rows]
 
     lines = []
     with tqdm(total=len(kinds), desc='Writing CSVs and parquets', leave=False, colour='green') as pbar:
@@ -1605,8 +1674,7 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, over
     return len(work_rows)
 
 
-def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_abstracts=False, overwrite=False,
-                     recompute_tables=[]):
+def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_abstracts=False, overwrite=False, ):
     """
     SKIP over creating tables that already exists to save on memory
     """
@@ -1627,14 +1695,15 @@ def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_
     finished_files_txt_path.parent.mkdir(exist_ok=True)  # make the temp directory if needed
 
     if finished_files_txt_path.exists():
+        final_table_count = len(DTYPES) if make_abstracts else len(DTYPES) - 1
         finished_files = set(
-            pd.read_csv(finished_files_txt_path, parse_dates=['timestamp'])  # load the pickle
-            .query(
-                '~(table.isin(@recompute_tables) & timestamp<"2023-10-01")')  # filter out rows that are old + discard
+            pd.read_csv(finished_files_txt_path, engine='c', parse_dates=['timestamp'])  # load the pickle
+            # .query(
+            #     '~(table.isin(@recompute_tables) & timestamp<"2023-10-01")')  # filter out rows that are old + discard
             .drop_duplicates(subset=['path', 'table'], keep='last')  # drop duplicates
             .groupby('path', as_index=False)
             .count()
-            .query('records==14')  # finished files will have 14 tables
+            .query('records==@final_table_count')  # finished files will have 14 tables
             .path
         )
         print(f'{len(finished_files)} existing files found!')
@@ -1647,6 +1716,13 @@ def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_
     files = [str(entry.filename) for entry in works_manifest.entries]
     files = [f for f in files if f not in finished_files]
     # print(f'{files[: 2]}')
+
+    inst_info_d = (  # store the instittutions names and country codes in a dictionary
+        pd.read_csv(CSV_DIR / 'institutions.csv.gz')
+        .set_index('institution_id')
+        [['institution_name', 'country_code']]
+        .to_dict()
+    )
 
     print(f'This might take a while, like 20 hours..')
 
@@ -1666,7 +1742,7 @@ def flatten_works_v3(files_to_process: Union[str, int] = 'all', threads=1, make_
                 records = process_work_json_v2(skip_ids=skip_ids, jsonl_filename=jsonl_file_name,
                                                overwrite_existing=overwrite,
                                                finished_files_txt_path=finished_files_txt_path,
-                                               make_abstracts=make_abstracts)
+                                               make_abstracts=make_abstracts, inst_info_d=inst_info_d)
                 total_works_count += records
                 pbar.update(1)
                 pbar.set_postfix_str(f'{total_works_count:,} works')
@@ -1725,7 +1801,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
     if pd.__version__ < "2":
         args = dict(infer_datetime_format=True)
     else:
-        args = dict()
+        args = dict(format='ISO8601')
 
     if kind == 'works':
         df = (
@@ -1762,8 +1838,6 @@ if __name__ == '__main__':
     # flatten_institutions()  # takes about 20s
     # flatten_publishers()
     # flatten_sources()
-    # recompute_tables = []
-    recompute_tables = ['locations', 'primary_location']
 
     # w/ abstracts => 200 lines/s
 
@@ -1777,4 +1851,4 @@ if __name__ == '__main__':
     # flatten_authors_concepts(files_to_process=files_to_process)
     # flatten_authors_hints(files_to_process=files_to_process)
     flatten_works_v3(files_to_process=files_to_process, threads=threads, make_abstracts=abstracts,
-                     overwrite=overwrite, recompute_tables=recompute_tables)  # takes about 20 hours  ~6 mins per file
+                     overwrite=overwrite, )  # takes about 20 hours  ~6 mins per file
