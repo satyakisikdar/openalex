@@ -402,7 +402,7 @@ def get_skip_ids(kind):
     if kind == 'works':
         skip_ids.add(4285719527)  # this is the deleted work from OpenAlex
 
-    print(f'{kind!r} {len(skip_ids):,} merged IDs')
+    print(f'{kind!r} {len(skip_ids):,} merged {kind} IDs')
     return skip_ids
 
 
