@@ -388,6 +388,9 @@ def get_skip_ids(kind):
     """
     Get the set of IDs that have been merged with other IDs to skip over them
     """
+    DELETED_WORK_ID, DELETED_AUTHOR_ID, DELETED_INST_ID = 4285719527, 5317838346, 4389424196
+    deleted_ids = {'works': DELETED_WORK_ID, 'authors': DELETED_AUTHOR_ID, 'institutions': DELETED_INST_ID}
+
     merged_entries_path = SNAPSHOT_DIR / 'data' / 'merged_ids' / kind
     if merged_entries_path.exists():
         merged_df = read_csvs(merged_entries_path.glob('*.csv.gz'))
@@ -399,8 +402,8 @@ def get_skip_ids(kind):
     else:
         skip_ids = set()
 
-    if kind == 'works':
-        skip_ids.add(4285719527)  # this is the deleted work from OpenAlex
+    if kind in deleted_ids:  # add deleted ids for tables
+        skip_ids.add(deleted_ids[kind])
 
     print(f'{kind!r} {len(skip_ids):,} merged {kind} IDs')
     return skip_ids
