@@ -1607,10 +1607,11 @@ def process_work_json_v2(skip_ids, jsonl_filename, finished_files_txt_path, inst
         if is_missing_rows['referenced_works']:
             for referenced_work in work.get('referenced_works'):
                 if referenced_work:
-                    num_references += 1
                     referenced_work = convert_openalex_id_to_int(referenced_work)
                     if referenced_work in skip_ids:
                         continue
+
+                    num_references += 1
                     refs_rows.append({
                         'work_id': work_id,
                         'referenced_work_id': referenced_work
