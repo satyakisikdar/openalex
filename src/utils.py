@@ -7,6 +7,7 @@ from collections import namedtuple
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import orjson
@@ -18,7 +19,7 @@ from seaborn._statistics import EstimateAggregator
 from tqdm import tqdm
 from unidecode import unidecode_expect_ascii
 
-from src.globals import path_type
+path_type = Union[str, Path]
 
 
 def string_to_bool(st, default_value=False):
