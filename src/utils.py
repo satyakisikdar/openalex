@@ -9,6 +9,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
+import orjson
 import pandas as pd
 import requests
 import ujson as json
@@ -89,6 +90,27 @@ def convert_openalex_id_to_int(openalex_id):
         id_ = int(openalex_id[1:])
     except Exception:
         id_ = None
+    return id_
+
+
+def convert_topic_id_to_int(openalex_id):
+    """
+    special function for converting topic/subtopic/domain/field IDs because of the different formats
+    """
+    if not openalex_id:
+        return None
+
+    openalex_id = openalex_id.strip().replace('https://openalex.org/', '')
+    slash_count = openalex_id.count('/')
+    if slash_count == 0:  # old format eg https://openalex.org/T10102
+        id_ = int(openalex_id[1:])
+    else:  # new format eg https://openalex.org/topics/T10102
+        st = openalex_id.split('/')[-1]
+        if st.upper().startswith('T'):  # special case for topics with a T in the front
+            id_ = int(st[1:])
+        else:  # for fields, domains, subfields
+            id_ = int(st)
+
     return id_
 
 
@@ -310,7 +332,92 @@ def dump_pickle(obj, path):
         pickle.dump(obj, writer)
 
 
+def parse_authorships(work_id, publication_year, authorships, author_skip_ids, inst_skip_ids, inst_info_d):
+    authorship_rows = []
+    num_authors = 0
+    has_complete_institution_info = True and (len(authorships) > 0)  # to make sure empty authorships dont trigger True
+
+    for authorship in authorships:
+        if author_id := authorship.get('author', {}).get('id'):
+            author_id = convert_openalex_id_to_int(author_id)
+
+            if author_id in author_skip_ids:  # skip if author has been deleted
+                continue
+
+            num_authors += 1  # increase the count of authors
+
+            author_name = authorship.get('author', {}).get('display_name', pd.NA)
+            raw_author_name = authorship.get('raw_author_name', pd.NA)
+
+            institutions = []  # <- NEW way (Jan 26)
+            for i in authorship.get('institutions'):
+                inst_id = convert_openalex_id_to_int(i.get('id'))
+                if inst_id not in inst_skip_ids:  # TODO: needs testing
+                    institutions.append(i)
+
+            institution_ids = [convert_openalex_id_to_int(i.get('id')) for i in institutions]
+
+            institution_ids = [i for i in institution_ids if i]
+            institution_ids = institution_ids or [None]
+            has_complete_institution_info = has_complete_institution_info and (institution_ids != [None])
+
+            institution_names = [i.get('display_name') for i in institutions]
+            institution_names = [i for i in institution_names if i]
+            institution_names = institution_names or [None]
+
+            country_codes = [i.get('country_code') for i in institutions]
+            country_codes = [i for i in country_codes if i]
+            country_codes = country_codes or [None]
+
+            lineages = [[convert_openalex_id_to_int(l) for l in i.get('lineage', [None])] for i in institutions]
+            lineages = [i for i in lineages if i]
+            lineages = lineages or [[None]]
+
+            for institution_id, institution_name, country_code, lineage_inst in zip(
+                    institution_ids, institution_names, country_codes, lineages,
+            ):
+                # level = 0
+                for level, lin_inst_id in enumerate(lineage_inst):
+                    inst_id = lin_inst_id
+
+                    if inst_id in inst_skip_ids:  # old inst id has been deleted
+                        continue
+
+                    assigned_institution = (institution_id == lin_inst_id)
+                    inst_name = inst_info_d['institution_name'].get(inst_id, pd.NA)
+                    country_code = inst_info_d['country_code'].get(inst_id, pd.NA)
+
+                    # raw affil string is forcibly set to pd.NA
+                    raw_affil_string = authorship.get('raw_affiliation_string', pd.NA)
+                    raw_affil_string = raw_affil_string if raw_affil_string != '' else pd.NA
+
+                    authorship_rows.append({
+                        'work_id': work_id,
+                        'publication_year': publication_year,
+                        'author_position': authorship.get('author_position', pd.NA),
+                        'author_id': author_id,
+                        'author_name': author_name,
+                        'raw_author_name': raw_author_name,
+                        'is_corresponding': authorship.get('is_corresponding', pd.NA),
+                        'institution_lineage_level': level,
+                        'assigned_institution': assigned_institution,
+                        'institution_id': inst_id,
+                        'innstitution_name': inst_name,
+                        'raw_affiliation_string': raw_affil_string,
+                        'country_code': country_code,
+                    })
+                    # level += 1
+
+    return authorship_rows, num_authors, has_complete_institution_info
+
+
 if __name__ == '__main__':
     paths = Paths()
-    df = pd.read_parquet(paths.processed_dir / 'authors')
-    print(len(df))
+    # df = pd.read_parquet(paths.processed_dir / 'authors')
+    # print(len(df))
+    CSV_DIR = Path('../data')
+
+    jsons = orjson.loads(Path(CSV_DIR / 'authorships_test.json').read_text())
+    rows = parse_authorships(authorships=jsons[-1]['authorships'], work_id=None, publication_year=None,
+                             inst_info_d=inst_info_d, inst_skip_ids=set(), author_skip_ids=set())
+    print(rows)
