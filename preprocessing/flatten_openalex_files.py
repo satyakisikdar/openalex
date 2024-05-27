@@ -333,6 +333,9 @@ STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string
 if STRING_DTYPE == 'string[pyarrow]':
     assert pd.__version__ >= "1.3.0", f'Pandas version >1.3 needed for String[pyarrow] dtype, have {pd.__version__!r}.'
 
+if pd.__version__ < '2':
+    raise NotImplementedError(f'Please use Pandas v2')
+
 if pd.__version__ >= '2.1':
     print('Using PyArrow strings!')
     pd.options.future.infer_string = True
@@ -1656,6 +1659,7 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
         if is_missing_rows['best_oa_location']:
             if best_oa_location := work.get('best_oa_location'):
                 if best_oa_location.get('source') and best_oa_location.get('source').get('id'):
+
                     best_oa_location_d = best_oa_location.get('source', {})
                     best_oa_loc_rows.append({
                         'work_id': work_id,
@@ -2021,10 +2025,10 @@ def init_dict_writer(csv_file, file_spec, **kwargs):
 
 
 if __name__ == '__main__':
-    # flatten_concepts()  # takes about 30s
-    # flatten_institutions()  # takes about 20s
-    # flatten_publishers()
-    # flatten_sources()
+    flatten_concepts()  # takes about 30s
+    flatten_institutions()  # takes about 20s
+    flatten_publishers()
+    flatten_sources()
 
     # w/ abstracts => 200 lines/s
 
@@ -2035,7 +2039,7 @@ if __name__ == '__main__':
     # recompute_tables = []
     # recompute_tables = ['abstracts']
 
-    abstracts, overwrite = True, False
+    abstracts, overwrite = False, False
 
     # flatten_topics()
     # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
