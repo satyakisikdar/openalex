@@ -390,6 +390,7 @@ def parse_authorships(work_id, publication_year, authorships, author_skip_ids, i
 
                     # raw affil string is forcibly set to pd.NA
                     raw_affil_string = authorship.get('raw_affiliation_string', pd.NA)
+                    raw_affil_string = '' if (pd.isna(raw_affil_string) or raw_affil_string == '') else raw_affil_string
                     raw_affil_string = raw_affil_string if raw_affil_string != '' else pd.NA
 
                     authorship_rows.append({
