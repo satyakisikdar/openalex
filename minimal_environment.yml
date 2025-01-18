@@ -18,3 +18,4 @@ dependencies:
   - unidecode
   - tqdm
   - requests
+  - seaborn
