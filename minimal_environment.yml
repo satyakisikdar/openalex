@@ -16,3 +16,5 @@ dependencies:
   - ujson
   - python-box
   - unidecode
+  - tqdm
+  - requests
