@@ -8,6 +8,7 @@ import glob
 import gzip
 import json
 import os
+import socket
 import sys
 import warnings
 from datetime import datetime
@@ -26,9 +27,13 @@ sys.path.extend(['../', './'])
 from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest, \
     parallel_async, string_to_bool, parse_authorships, convert_topic_id_to_int
 
-# BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
-# BASEDIR = Path('/N/scratch/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
-BASEDIR = Path('/home/ssikdar/data')
+hostname = socket.gethostname()
+if 'quartz' in hostname:
+    BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
+    # BASEDIR = Path('/N/scratch/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
+else:
+    BASEDIR = Path('/home/ssikdar/data')
+
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
 MONTH = 'dec-2024'
 
