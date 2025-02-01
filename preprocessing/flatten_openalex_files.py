@@ -460,7 +460,7 @@ def str_to_int(s):
 
 def merge_all_skip_ids(kind, overwrite):
     merged_entries_path = SNAPSHOT_DIR / 'data' / 'merged_ids' / kind
-    merged_parq_path = merged_entries_path / f'{kind}_combined.parquet'
+    merged_parq_path = PARQ_DIR / f'{kind}_combined_merged_ids.parquet'
 
     if not overwrite and merged_parq_path.exists():
         print(f'Merged parquet for {kind} exists! Skipping....')
@@ -497,7 +497,8 @@ def get_skip_ids(kind):
     merged_entries_path = SNAPSHOT_DIR / 'data' / 'merged_ids' / kind
     if merged_entries_path.exists():
         # check for merged parquet
-        merged_parq_path = merged_entries_path / f'{kind}_combined.parquet'
+        merged_parq_path = PARQ_DIR / f'{kind}_combined_merged_ids.parquet'
+
         if merged_parq_path.exists():
             merged_df = pd.read_parquet(merged_parq_path, columns=['id'])
             skip_ids = set(merged_df['id'])
