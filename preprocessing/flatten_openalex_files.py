@@ -348,20 +348,24 @@ if pd.__version__ >= '2.1':
     print('Using PyArrow strings!')
     pd.options.future.infer_string = True
 
-inst_info_d = (  # store the instittutions names and country codes in a dictionary
-    pd.read_csv(CSV_DIR / 'institutions.csv.gz')
-    .set_index('institution_id')
-    [['institution_name', 'country_code']]
-    .to_dict()
-)
+inst_path = CSV_DIR / 'institutions.csv.gz'
+if inst_path.exists():
+    inst_info_d = (  # store the instittutions names and country codes in a dictionary
+        pd.read_csv(inst_path)
+        .set_index('institution_id')
+        [['institution_name', 'country_code']]
+        .to_dict()
+    )
 
-topic_info_d = (  # store the topic info in a dictionary
-    pd.read_csv(CSV_DIR / 'topics.csv.gz')
-    .set_index('topic_id')
-    [['topic_name', 'subfield_id', 'subfield_name', 'field_id', 'field_name', 'domain_id', 'domain_name']]
-    .convert_dtypes()
-    .to_dict()
-)
+topic_path = CSV_DIR / 'topics.csv.gz'
+if topic_path.exists():
+    topic_info_d = (  # store the topic info in a dictionary
+        pd.read_csv(topic_path)
+        .set_index('topic_id')
+        [['topic_name', 'subfield_id', 'subfield_name', 'field_id', 'field_name', 'domain_id', 'domain_name']]
+        .convert_dtypes()
+        .to_dict()
+    )
 
 
 DTYPES = {
@@ -2114,11 +2118,12 @@ if __name__ == '__main__':
     start_time = time()
     print(f'Starting at {datetime.now().strftime("%c").strip()}')
 
-    # # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN FIRST
     # # flatten_concepts()  # takes about 30s
     # # flatten_institutions()  # takes about 20s
     # # flatten_publishers()
     # # flatten_sources()
+
+    # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
     #
     # # w/ abstracts => 200 lines/s
     #
