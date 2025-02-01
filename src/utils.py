@@ -2,7 +2,6 @@ import ast
 import multiprocessing
 import pickle
 import re
-import unicodedata
 from collections import namedtuple
 from datetime import datetime
 from multiprocessing import Pool
@@ -14,6 +13,7 @@ import orjson
 import pandas as pd
 import requests
 import ujson as json
+import unicodedata
 from box import Box
 from seaborn._statistics import EstimateAggregator
 from tqdm import tqdm
@@ -385,12 +385,22 @@ def parse_authorships(work_id, publication_year, authorships, author_skip_ids, i
                         continue
 
                     assigned_institution = (institution_id == lin_inst_id)
+
                     inst_name = inst_info_d['institution_name'].get(inst_id, pd.NA)
                     country_code = inst_info_d['country_code'].get(inst_id, pd.NA)
 
                     # raw affil string is forcibly set to pd.NA
-                    raw_affil_string = authorship.get('raw_affiliation_string', '')
-                    raw_affil_string = raw_affil_string if raw_affil_string != '' else pd.NA
+
+                    raw_affil_string_old = authorship.get('raw_affiliation_string', '')
+
+                    raw_affil_strings = ';'.join(authorship.get('raw_affiliation_strings', []))
+                    if raw_affil_strings == '':
+                        if raw_affil_string_old != '':
+                            raw_affil_string = raw_affil_string_old
+                        else:
+                            raw_affil_string = pd.NA
+                    else:
+                        raw_affil_string = raw_affil_strings
 
                     authorship_rows.append({
                         'work_id': work_id,
@@ -403,7 +413,7 @@ def parse_authorships(work_id, publication_year, authorships, author_skip_ids, i
                         'institution_lineage_level': level,
                         'assigned_institution': assigned_institution,
                         'institution_id': inst_id,
-                        'innstitution_name': inst_name,
+                        'institution_name': inst_name,
                         'raw_affiliation_string': raw_affil_string,
                         'country_code': country_code,
                     })
@@ -417,6 +427,13 @@ if __name__ == '__main__':
     # df = pd.read_parquet(paths.processed_dir / 'authors')
     # print(len(df))
     CSV_DIR = Path('../data')
+
+    inst_info_d = (  # store the instittutions names and country codes in a dictionary
+        pd.read_csv(CSV_DIR / 'institutions.csv.gz')
+        .set_index('institution_id')
+        [['institution_name', 'country_code']]
+        .to_dict()
+    )
 
     jsons = orjson.loads(Path(CSV_DIR / 'authorships_test.json').read_text())
     rows = parse_authorships(authorships=jsons[-1]['authorships'], work_id=None, publication_year=None,
