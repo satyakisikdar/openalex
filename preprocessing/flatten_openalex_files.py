@@ -2111,6 +2111,7 @@ def flatten_merged_entries(overwrite=False):
     merged_entries_path = SNAPSHOT_DIR / 'data' / 'merged_ids'
     kinds = list(map(lambda s: s.stem, merged_entries_path.glob('*')))
     for kind in tqdm(kinds, desc=f'Flattening merged entries'):
+        print(f'{kind=}')
         merge_all_skip_ids(kind=kind, overwrite=False)
 
 
