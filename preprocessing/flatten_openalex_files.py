@@ -2126,7 +2126,7 @@ if __name__ == '__main__':
     # # flatten_institutions()  # takes about 20s
     # # flatten_publishers()
     # # flatten_sources()
-    # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
+    flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
     #
     # # w/ abstracts => 200 lines/s
     #
