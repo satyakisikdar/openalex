@@ -467,6 +467,9 @@ def merge_all_skip_ids(kind, overwrite):
         return
 
     csvs = list(merged_entries_path.glob('*.csv.gz'))
+    if len(csvs) == 0:
+        print(f'No merged ids CSVs found in {merged_entries_path}')
+        return
     merged_dfs = []
 
     for csv_file in tqdm(csvs, desc=f'{kind}'):
