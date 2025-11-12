@@ -2,11 +2,13 @@ import ast
 import multiprocessing
 import pickle
 import re
+import textwrap
 from collections import namedtuple
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Union
+import pyarrow.parquet as pypq
 
 import numpy as np
 import orjson
@@ -422,7 +424,50 @@ def parse_authorships(work_id, publication_year, authorships, author_skip_ids, i
     return authorship_rows, num_authors, has_complete_institution_info
 
 
-if __name__ == '__main__':
+def peek_parquet(path):
+    """
+    peeks at a parquet file (or a directory containing parquet files) without reading the whole thing and prints the following:
+    * Path
+    * schema
+    * number of pieces (fragments)
+    * number of rows
+    """
+    parq_file = pypq.ParquetDataset(path)
+    piece_count = len(parq_file.fragments)
+    schema = textwrap.indent(parq_file.schema.to_string(), " " * 4)
+    row_count = sum(frag.count_rows() for frag in parq_file.fragments)
+
+    st = [
+        f"Name: {path.stem!r}",
+        f"Path: {str(path)!r}",
+        f"Files: {piece_count:,}",
+        f"Rows: {row_count:,}",
+        f"Schema:\n{schema}",
+        f"5 random rows:",
+    ]
+    print("\n".join(st))
+    sample_df = (
+        parq_file.fragments[0].head(5).to_pandas()
+    )  # read 5 rows from the first fragment
+    display(sample_df)
+
+    return
+
+
+def read_smaller_tables(name):
+    """
+    Some smaller tables exist as a CSV only
+    """
+    assert name in ["institutions", "institutions_geo", "concepts"]
+    path = (
+        Path("/N/project/openalex/ssikdar/processed-snapshots/csv-files/may-2023/")
+        / name
+    )
+    df = pd.read_csv(f"{path}.csv.gz", engine="c")
+    return df
+
+
+if __name__ == "__main__":
     paths = Paths()
     # df = pd.read_parquet(paths.processed_dir / 'authors')
     # print(len(df))
