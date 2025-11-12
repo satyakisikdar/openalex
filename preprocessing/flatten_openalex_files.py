@@ -28,14 +28,19 @@ from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reco
     parallel_async, string_to_bool, parse_authorships, convert_topic_id_to_int
 
 hostname = socket.gethostname()
+
 if 'quartz' in hostname:
     BASEDIR = Path('/N/project/openalex/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
     # BASEDIR = Path('/N/scratch/ssikdar')  # directory where you have downloaded the OpenAlex snapshots
+elif hostname == 'yoda':
+    BASEDIR = Path('/data/shared/OpenAlex')
 else:
-    BASEDIR = Path('/home/ssikdar/data')
+    BASEDIR = Path('/home/ssikdar/data/shared/OpenAlex')
+
+print(f'{hostname=} {BASEDIR=}')
 
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'dec-2024'
+MONTH = 'may-2025'
 
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
@@ -356,6 +361,8 @@ if inst_path.exists():
         [['institution_name', 'country_code']]
         .to_dict()
     )
+else:
+    print('Inst CSV not found!')
 
 topic_path = CSV_DIR / 'topics.csv.gz'
 if topic_path.exists():
@@ -366,6 +373,8 @@ if topic_path.exists():
         .convert_dtypes()
         .to_dict()
     )
+else:
+    print('Topic CSV not found!')
 
 
 DTYPES = {
@@ -427,7 +436,7 @@ DTYPES = {
         work_id='int64', related_work_id='int64'
     ),
     'concepts': dict(
-        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='uint8',
+        work_id='int64', publication_year='Int16', concept_id='int64', concept_name='category', level='int8',
         score=float,
     ),
     'abstracts': dict(
@@ -2018,14 +2027,14 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
             ('num_authors', pa.uint16()),
             ('num_locations', pa.uint16()),
             ('num_references', pa.uint16()),
-            ('language', pa.dictionary(pa.uint8(), pa.utf8())),
+            ('language', pa.dictionary(pa.int8(), pa.utf8())),
             ('has_complete_institution_info', pa.bool_()),
             ('has_grant_info', pa.bool_()),
             ('has_keywords', pa.bool_()),
             ('is_retracted', pa.bool_()),
             ('is_paratext', pa.bool_()),
             ('created_date', pa.timestamp('ns')),
-            ('gz_path', pa.dictionary(pa.uint16(), pa.utf8())),
+            ('gz_path', pa.dictionary(pa.int16(), pa.utf8())),
             # ('updated_date', pa.timestamp('ns')),
         ])
         write_args = dict(schema=schema)
@@ -2052,11 +2061,11 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
             ('author_id', pa.int64()),
             ('author_name', pa.utf8()),
             ('raw_author_name', pa.utf8()),
-            ('institution_lineage_level', pa.uint8()),
+            ('institution_lineage_level', pa.int8()),
             ('assigned_institution', pa.bool_()),
             ('institution_id', pa.int64()),
             ('institution_name', pa.dictionary(pa.int32(), pa.utf8())),
-            ('country_code', pa.dictionary(pa.uint8(), pa.utf8())),
+            ('country_code', pa.dictionary(pa.int16(), pa.utf8())),
             ('raw_affiliation_string', pa.utf8()),
             ('publication_year', pa.int16()),
             ('is_corresponding', pa.bool_()),
@@ -2080,19 +2089,33 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
             ('is_primary_topic', pa.bool_()),
             ('score', pa.float32()),
             ('topic_id', pa.uint32()),
-            ('topic_name', pa.dictionary(pa.uint16(), pa.utf8())),
+            ('topic_name', pa.dictionary(pa.int16(), pa.utf8())),
             ('subfield_id', pa.uint32()),
-            ('subfield_name', pa.dictionary(pa.uint8(), pa.utf8())),
+            ('subfield_name', pa.dictionary(pa.int16(), pa.utf8())),
             ('field_id', pa.uint32()),
-            ('field_name', pa.dictionary(pa.uint16(), pa.utf8())),
+            ('field_name', pa.dictionary(pa.int16(), pa.utf8())),
             ('domain_id', pa.uint32()),
             ('domain_name', pa.dictionary(pa.int8(), pa.utf8())),
         ])
         write_args = dict(schema=schema)
         df.drop_duplicates(inplace=True)  # weird bug causes authorships table to have repeated rows sometimes
-
+    elif kind == 'concepts':
+        schema = pa.schema(
+            [
+                ("work_id", pa.int64()),
+                ("publication_year", pa.int16()),
+                ("score", pa.float32()),
+                ("concept_id", pa.int64()),
+                ("concept_name", pa.dictionary(pa.int32(), pa.utf8())),
+                ("level", pa.int8()),
+            ]
+        )
+        write_args = dict(schema=schema)
     # if kind == 'topics':
     #     print(f'Writing {kind=} {parq_filename.stem}\n{df.info()}\n'); df.to_csv(PARQ_DIR / 'temp' / f'{parq_filename.stem}.csv')
+
+    write_args['compression'] = 'brotli'
+
     df.to_parquet(parq_filename, engine='pyarrow', coerce_timestamps='ms', allow_truncated_timestamps=True,
                   **write_args)
     return True
@@ -2123,16 +2146,19 @@ if __name__ == '__main__':
     start_time = time()
     print(f'Starting at {datetime.now().strftime("%c").strip()}')
 
-    # # flatten_concepts()  # takes about 30s
-    # # flatten_institutions()  # takes about 20s
-    # # flatten_publishers()
-    # # flatten_sources()
-    flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
+    # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
+
+    # flatten_concepts()  # takes about 30s
+    # flatten_institutions()  # takes about 20s
+    # flatten_publishers()
+    # flatten_sources()
+    # flatten_topics()
+
     #
     # # w/ abstracts => 200 lines/s
     #
     files_to_process = 'all'  # to do everything
-    # files_to_process = 100 # or any other number
+    # files_to_process = 200 # or any other number
     #
     threads = 1
     # # recompute_tables = []
