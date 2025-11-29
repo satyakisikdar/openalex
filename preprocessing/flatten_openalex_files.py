@@ -191,13 +191,13 @@ csv_files = dict(
         'keywords': {
             'name': os.path.join(CSV_DIR, 'works_keywords.csv.gz'),
             'columns': [
-                'work_id', 'keyword', 'score',
+                'work_id', 'publication_year', 'keyword', 'score',
             ],
         },
         'grants': {
             'name': os.path.join(CSV_DIR, 'works_grants.csv.gz'),
             'columns': [
-                'work_id', 'funder_id', 'funder_name', 'award_id',
+                'work_id', 'publication_year', 'funder_id', 'funder_name', 'award_id',
             ]
         },
         # Satyaki addition: put abstracts in a different CSV, save some space
@@ -210,7 +210,7 @@ csv_files = dict(
         'primary_location': {
             'name': os.path.join(CSV_DIR, 'works_primary_location.csv.gz'),
             'columns': [
-                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
+                'work_id', 'publication_year', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
                 'pdf_url',
                 'is_oa', 'is_accepted', 'is_published'
             ]
@@ -218,7 +218,7 @@ csv_files = dict(
         'locations': {
             'name': os.path.join(CSV_DIR, 'works_locations.csv.gz'),
             'columns': [
-                'work_id', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
+                'work_id', 'publication_year', 'source_id', 'source_name', 'source_type', 'version', 'license', 'landing_page_url',
                 'pdf_url', 'is_oa', 'is_accepted', 'is_published'
             ]
         },
@@ -421,6 +421,7 @@ DTYPES = {
     ),
     "keywords": dict(
         work_id="int64",
+        publication_year="Int16",
         keyword="category",
         score=float,
     ),
@@ -441,6 +442,7 @@ DTYPES = {
     ),
     "grants": dict(
         work_id="int64",
+        publication_year="Int16",
         funder_id="Int64",
         funder_name=STRING_DTYPE,
         award_id=STRING_DTYPE,
@@ -464,6 +466,7 @@ DTYPES = {
     ),
     "primary_location": dict(
         work_id="int64",
+        publication_year="Int16",
         source_id="Int64",
         source_name=STRING_DTYPE,
         source_type="category",
@@ -477,6 +480,7 @@ DTYPES = {
     ),
     "locations": dict(
         work_id="int64",
+        publication_year="Int16",
         source_id="Int64",
         source_name=STRING_DTYPE,
         source_type="category",
@@ -1716,6 +1720,7 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
                         has_keywords = True
                         keywords_rows.append({
                             'work_id': work_id,
+                            'publication_year': work.get('publication_year'),
                             'keyword': keyword_d.get('display_name', pd.NA),
                             'score': keyword_d.get('score', pd.NA),
                         })
@@ -1735,12 +1740,15 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
                         funder_name = grant_d.get('funder_display_name', pd.NA)
                         funder_name = funder_name if funder_name != '' else pd.NA
 
-                        grant_rows.append({
-                            'work_id': work_id,
-                            'funder_id': funder_id,
-                            'funder_name': funder_name,
-                            'award_id': grant_d.get('award_id', pd.NA),
-                        })
+                        grant_rows.append(
+                            {
+                                "work_id": work_id,
+                                "publication_year": work.get("publication_year"),
+                                "funder_id": funder_id,
+                                "funder_name": funder_name,
+                                "award_id": grant_d.get("award_id", pd.NA),
+                            }
+                        )
             else:
                 has_grant = pd.NA
             work['has_grant_info'] = has_grant
@@ -1772,6 +1780,7 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
 
                         primary_location_rows.append({
                             'work_id': work_id,
+                            'publication_year': work.get('publication_year'),
                             'source_id': source_id,
                             'source_name': primary_location_d.get('display_name'),
                             'source_type': primary_location_d.get('type'),
@@ -1796,19 +1805,28 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
                                 continue
 
                             num_locations += 1
-                            location_rows.append({
-                                'work_id': work_id,
-                                'source_id': source_id,
-                                'source_name': location_d.get('display_name'),
-                                'source_type': location_d.get('type'),
-                                'version': location.get('version'),
-                                'license': location.get('license'),
-                                'landing_page_url': location.get('landing_page_url'),
-                                'pdf_url': location.get('pdf_url'),
-                                'is_oa': string_to_bool(location.get('is_oa')),
-                                'is_accepted': string_to_bool(location.get('is_accepted')),
-                                'is_published': string_to_bool(location.get('is_published')),
-                            })
+                            location_rows.append(
+                                {
+                                    "work_id": work_id,
+                                    "publication_year": work.get("publication_year"),
+                                    "source_id": source_id,
+                                    "source_name": location_d.get("display_name"),
+                                    "source_type": location_d.get("type"),
+                                    "version": location.get("version"),
+                                    "license": location.get("license"),
+                                    "landing_page_url": location.get(
+                                        "landing_page_url"
+                                    ),
+                                    "pdf_url": location.get("pdf_url"),
+                                    "is_oa": string_to_bool(location.get("is_oa")),
+                                    "is_accepted": string_to_bool(
+                                        location.get("is_accepted")
+                                    ),
+                                    "is_published": string_to_bool(
+                                        location.get("is_published")
+                                    ),
+                                }
+                            )
             else:
                 num_locations = work.get('locations_count', 0)
             work['num_locations'] = num_locations
@@ -2178,6 +2196,7 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         schema = pa.schema(
             [
                 ("work_id", pa.int64()),
+                ("publication_year", pa.int16()),
                 ("keyword", pa.dictionary(pa.int32(), pa.utf8())),
                 ("score", pa.float32()),
             ]
@@ -2242,7 +2261,7 @@ if __name__ == '__main__':
     # # w/ abstracts => 200 lines/s
     #
     files_to_process = 'all'  # to do everything
-    # files_to_process = 50 # or any other number
+    # files_to_process = 100 # or any other number
     #
     threads = 1
     # # recompute_tables = []
