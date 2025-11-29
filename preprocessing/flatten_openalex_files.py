@@ -399,7 +399,7 @@ DTYPES = {
         field_id='uint16', field_name='category', domain_id='uint8', domain_name='category',
     ),
     'keywords': dict(
-        work_id='int64', keyword=STRING_DTYPE, score=float,
+        work_id='int64', keyword='category', score=float,
     ),
     'authorships': dict(
         work_id='int64', author_position='category', author_id='Int64', author_name=STRING_DTYPE,
@@ -1641,7 +1641,7 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
                         has_keywords = True
                         keywords_rows.append({
                             'work_id': work_id,
-                            'keyword': keyword_d.get('keyword', pd.NA),
+                            'keyword': keyword_d.get('display_name', pd.NA),
                             'score': keyword_d.get('score', pd.NA),
                         })
             else:
@@ -2099,6 +2099,15 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
         ])
         write_args = dict(schema=schema)
         df.drop_duplicates(inplace=True)  # weird bug causes authorships table to have repeated rows sometimes
+    elif kind == 'keywords':
+        schema = pa.schema(
+            [
+                ("work_id", pa.int64()),
+                ("keyword", pa.dictionary(pa.int32(), pa.utf8())),
+                ("score", pa.float32()),
+            ]
+        )
+        write_args = dict(schema=schema)
     elif kind == 'concepts':
         schema = pa.schema(
             [
@@ -2158,7 +2167,7 @@ if __name__ == '__main__':
     # # w/ abstracts => 200 lines/s
     #
     files_to_process = 'all'  # to do everything
-    # files_to_process = 200 # or any other number
+    # files_to_process = 50 # or any other number
     #
     threads = 1
     # # recompute_tables = []
