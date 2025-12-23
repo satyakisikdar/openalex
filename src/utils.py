@@ -7,7 +7,6 @@ from collections import namedtuple
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
-from typing import Union
 import pyarrow.parquet as pypq
 
 import numpy as np
@@ -17,11 +16,10 @@ import requests
 import ujson as json
 import unicodedata
 from box import Box
-from seaborn._statistics import EstimateAggregator
 from tqdm import tqdm
 from unidecode import unidecode_expect_ascii
 
-path_type = Union[str, Path]
+path_type = str | Path
 
 
 def string_to_bool(st, default_value=False):
@@ -47,6 +45,7 @@ def conf_interval(data, aggfunc='mean', errorfunc=('ci', 95),
     errorfunc: ('ci', 95), 'sd' (standard dev), 'se' (standard error)
     return_errors: return difference between the means if True, else return the absolute boundaries 
     """
+    from seaborn._statistics import EstimateAggregator
     data = np.array(data)
     data = data[~np.isnan(data)]  # remove NaNs
 
