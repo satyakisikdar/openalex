@@ -1,0 +1,16 @@
+[project]
+name = "openalex"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "orjson>=3.11.5",
+    "pandas-stubs>=2.3.3.251219",
+    "pandas[all]>=2.3.3",
+    "pyarrow>=22.0.0",
+    "python-box>=7.3.2",
+    "ruff>=0.14.10",
+    "tqdm>=4.67.1",
+    "ujson>=5.11.0",
+    "unidecode>=1.4.0",
+]
