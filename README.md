@@ -4,9 +4,9 @@ Updated: Jan 16, 2026
 
 ## Preprocessing
 0. Install `uv` if needed and create the `openalex` uv environment by running `uv init` inside the `openalex` directory.
-1. To run the flattening script, first activate the uv `openalex` environment (if needed) by running `source .venv/bin/activate` inside the directory, then execute `uv run preprocessing/flatten_openalex_files.py`. 
-2. Download the OpenAlex snapshots from [this](https://docs.openalex.org/download-all-data/download-to-your-machine)
+1. Download the OpenAlex snapshots from [this](https://docs.openalex.org/download-all-data/download-to-your-machine)
    link to a directory of your choosing (say, `basedir`).
+2. To run the flattening script, first activate the uv `openalex` environment (if needed) by running `source .venv/bin/activate` inside the directory, then execute `uv run preprocessing/flatten_openalex_files.py`. 
 3. Open `preprocessing/flatten_openalex_files.py` and update the following variables:
    a. `BASEDIR` to the directory in Step 1.
    b. `MONTH` to the month of the snapshot, eg: `may-2025`
