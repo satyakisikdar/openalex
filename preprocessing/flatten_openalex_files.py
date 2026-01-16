@@ -2345,29 +2345,27 @@ if __name__ == '__main__':
     # flatten_concepts()  # takes about 30s
     # flatten_institutions()  # takes about 20s
     # flatten_publishers()
-    flatten_sources()
+    # flatten_sources()
     # flatten_topics()
 
-    #
-    # # w/ abstracts => 200 lines/s
-    #
-    # files_to_process = 'all'  # to do everything
+    files_to_process = 'all'  # to do everything
     # files_to_process = 100 # or any other number
-    #
+
     # threads = 1
     # # recompute_tables = []
     # # recompute_tables = ['abstracts']
     #
     # abstracts, overwrite = False, False
     #
-    # # flatten_topics()
     # # flatten_authors(files_to_process=files_to_process)  # takes 6-7 hours for the whole thing! ~3 mins per file
     # # flatten_authors_concepts(files_to_process=files_to_process)
     # # flatten_authors_hints(files_to_process=files_to_process)
-    #
+
+    ### UNCOMMENT THE BLOCK below to flatten works ###
     # flatten_works_v3(
     #     files_to_process=files_to_process, threads=threads, make_abstracts=abstracts,
     #     overwrite=overwrite,
     # )  # takes about 20 hours  ~6 mins per file
+    #######
 
     print(f'End time: {datetime.now().strftime("%c").strip()}...', f'Time taken: {time() - start_time:.2f} seconds')
