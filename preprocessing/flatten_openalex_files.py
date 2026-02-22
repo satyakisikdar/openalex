@@ -833,7 +833,7 @@ def read_csvs(paths):
     try:
         df = pd.concat([pd.read_csv(path, engine='pyarrow') for path in paths], ignore_index=True)
     except ValueError:
-        df = pd.DataFrame()
+        df = None
     return df
 
 
@@ -888,11 +888,14 @@ def get_skip_ids(kind):
             skip_ids = set(merged_df['id'])
         else:
             merged_df = read_csvs(merged_entries_path.glob('*.csv.gz'))
-            skip_ids = set(
-                merged_df
-                .id
-            )
-            skip_ids = {convert_openalex_id_to_int(id_) for id_ in skip_ids}
+            if merged_df is None:
+                skip_ids = set()
+            else:
+                skip_ids = set(
+                    merged_df
+                    .id
+                )
+                skip_ids = {convert_openalex_id_to_int(id_) for id_ in skip_ids}
     else:
         skip_ids = set()
 
