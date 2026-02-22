@@ -1042,7 +1042,7 @@ def flatten_publishers():
                         continue
 
                     publisher['publisher_id'] = publisher_id
-                    publisher['publisher_name'] = publisher['display_name']
+                    publisher['publisher_name'] = publisher.get('display_name')
                     seen_publisher_ids.add(publisher_id)
 
                     # publishers
@@ -2351,11 +2351,11 @@ if __name__ == '__main__':
     start_time = time()
     print(f'Starting at {datetime.now().strftime("%c").strip()}')
 
-    flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
+    # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
 
-    flatten_funders()
-    flatten_concepts()  # takes about 30s
-    flatten_institutions()  # takes about 20s
+    # flatten_funders()
+    # flatten_concepts()  # takes about 30s
+    # flatten_institutions()  # takes about 20s
     flatten_publishers()
     flatten_sources()
     flatten_topics()
