@@ -1769,8 +1769,8 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
             type_crossref = work.get('type_crossref', pd.NA)
             work['type_crossref'] = type_crossref
 
-            work['is_retracted'] = string_to_bool(work['is_retracted'])
-            work['is_paratext'] = string_to_bool(work['is_paratext'])
+            work['is_retracted'] = string_to_bool(work.get('is_retracted'))
+            work['is_paratext'] = string_to_bool(work.get('is_paratext'))
 
             # if type_crossref is not None:
             #     print(f'{work_id=} {jsonl_file_name=} {type_crossref=}')
