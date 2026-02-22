@@ -860,9 +860,10 @@ def merge_all_skip_ids(kind, overwrite):
         )
         merged_dfs.append(merged_df)
 
-    combined_df = pd.concat(merged_dfs, ignore_index=True).drop_duplicates()
-    print(f'Writing {len(combined_df):,} rows of merged skip ids for {kind!r} at {str(merged_entries_path)!r}')
-    combined_df.to_parquet(merged_parq_path, engine='pyarrow')
+    if len(merged_dfs) > 1:
+        combined_df = pd.concat(merged_dfs, ignore_index=True).drop_duplicates()
+        print(f'Writing {len(combined_df):,} rows of merged skip ids for {kind!r} at {str(merged_entries_path)!r}')
+        combined_df.to_parquet(merged_parq_path, engine='pyarrow')
     return
 
 
@@ -2344,7 +2345,7 @@ if __name__ == '__main__':
     start_time = time()
     print(f'Starting at {datetime.now().strftime("%c").strip()}')
 
-    # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
+    flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
 
     # flatten_funders()
     # flatten_concepts()  # takes about 30s
