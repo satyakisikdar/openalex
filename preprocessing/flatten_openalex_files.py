@@ -1780,10 +1780,9 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
                 doi = doi.replace('https://doi.org/', '') if doi is not None else None
             work['doi'] = doi
 
-            if work['title'] is None:
-                title = None
-            else:
-                title = work['title'].replace(r'\n', ' ')  # deleting stray \n's in title
+            title = work.get('title')
+            if title is not None:
+                title = title.replace(r'\n', ' ')  # deleting stray \n's in title
             work['title'] = title
 
             work['language'] = work.get('language', pd.NA)  # works languages
