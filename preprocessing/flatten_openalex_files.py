@@ -2079,6 +2079,9 @@ def flatten_works_v3(files_to_process: str | int = 'all', threads=1, make_abstra
     """
     SKIP over creating tables that already exists to save on memory
     """
+    if recompute_tables is None:
+        recompute_tables = []
+
     skip_ids, author_skip_ids, inst_skip_ids, publ_skip_ids, source_skip_ids = get_skip_ids('works'), \
         get_skip_ids('authors'), get_skip_ids('institutions'), get_skip_ids('publishers'), get_skip_ids('sources')
 
