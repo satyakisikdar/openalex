@@ -830,7 +830,10 @@ def read_csvs(paths):
     """
     Return the concatenated df after reaching CSVs from paths
     """
-    df = pd.concat([pd.read_csv(path, engine='pyarrow') for path in paths], ignore_index=True)
+    try:
+        df = pd.concat([pd.read_csv(path, engine='pyarrow') for path in paths], ignore_index=True)
+    except ValueError:
+        df = pd.DataFrame()
     return df
 
 
