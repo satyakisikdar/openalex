@@ -1753,6 +1753,11 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
             if work_id in skip_ids:
                 continue
 
+            # skip xpac entries
+            in_xpac = work.get('is_xpac', False)
+            if in_xpac:
+                continue
+
             num_authors, num_references, num_locations = 0, 0, 0
             type_crossref = work.get('type_crossref', pd.NA)
             work['type_crossref'] = type_crossref
