@@ -1775,8 +1775,9 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
             # if type_crossref is not None:
             #     print(f'{work_id=} {jsonl_file_name=} {type_crossref=}')
             work['work_id'] = work_id
-            doi = work['doi']
-            doi = doi.replace('https://doi.org/', '') if doi is not None else None
+            doi = work.get('doi', pd.NA)
+            if doi is not None:
+                doi = doi.replace('https://doi.org/', '') if doi is not None else None
             work['doi'] = doi
 
             if work['title'] is None:
