@@ -38,7 +38,7 @@ else:
 print(f'{hostname=} {BASEDIR=}')
 
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'may-2025'
+MONTH = 'feb-2026'
 
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
@@ -2346,12 +2346,12 @@ if __name__ == '__main__':
 
     # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
 
-    # flatten_funders()
-    # flatten_concepts()  # takes about 30s
-    # flatten_institutions()  # takes about 20s
-    # flatten_publishers()
-    # flatten_sources()
-    # flatten_topics()
+    flatten_funders()
+    flatten_concepts()  # takes about 30s
+    flatten_institutions()  # takes about 20s
+    flatten_publishers()
+    flatten_sources()
+    flatten_topics()
 
     files_to_process = 'all'  # to do everything
     # files_to_process = 100 # or any other number
