@@ -1052,13 +1052,13 @@ def flatten_publishers():
 
                     if publisher_ids := publisher.get('ids'):
                         publisher_ids['publisher_id'] = publisher_id
-                        publisher_ids['publisher_name'] = publisher['display_name']
+                        publisher_ids['publisher_name'] = publisher.get('display_name')
                         ids_writer.writerow(publisher_ids)
 
                     if counts_by_year := publisher.get('counts_by_year'):
                         for count_by_year in counts_by_year:
                             count_by_year['publisher_id'] = publisher_id
-                            count_by_year['publisher_name'] = publisher['display_name']
+                            count_by_year['publisher_name'] = publisher.get('display_name')
                             counts_by_year_writer.writerow(count_by_year)
 
             files_done += 1
