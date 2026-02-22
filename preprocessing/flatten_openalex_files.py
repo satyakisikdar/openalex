@@ -1954,7 +1954,7 @@ def process_work_json_v2(skip_ids, author_skip_ids, inst_skip_ids, jsonl_filenam
 
                         best_oa_loc_rows.append({
                             'work_id': work_id,
-                            'pdf_url': best_oa_location['pdf_url'],
+                            'pdf_url': best_oa_location.get('pdf_url'),
                             'is_oa': string_to_bool(best_oa_location.get('is_oa')),
                             'is_accepted': string_to_bool(best_oa_location.get('is_accepted')),
                             'is_published': string_to_bool(best_oa_location.get('is_published')),
