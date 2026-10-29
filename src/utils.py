@@ -198,7 +198,7 @@ def normalize_string(text, decode=True):
     response = remove_punctuation(response)
     response = re.sub(r"\b(a|an|the)\b", "", response)
     response = re.sub(r"\b(and)\b", "", response)
-    response = re.sub("\s+", "", response)
+    response = re.sub(r"\s+", "", response)
     return response
 
 
