@@ -21,7 +21,7 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
 - Layout: **one top-level dir per table, flat**, holding only that table's Parquet files:
   `oct-2026/works/part-00000.parquet`, `oct-2026/works_authorships/...`, `oct-2026/authors_counts_by_year/...`.
   No per-entity nesting, no partition subdirs.
-- **Metadata is stored with the data** (*proposed layout, awaiting user confirmation*):
+- **Metadata is stored with the data** (layout confirmed by user 2026-10-29):
   - per table dir: pyarrow `_metadata` + `_common_metadata` (`pq.write_metadata`; schema and row-group
     stats for fast planning) and `_manifest.json` (per file: name, rows, bytes, row groups; table totals,
     schema, source snapshot date, build time).
@@ -81,7 +81,8 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   Optimized tables have no list columns.
 - 1:1 structs (e.g. `summary_stats`) become columns of the parent table, except where the old flattener
   had a separate table for them (`<x>_ids`, `institutions_geo`); keep those tables.
-- Drop API URL columns (`works_api_url` and similar): never stored.
+- Drop API URL columns (`works_api_url` and similar) and columns trivially derived from another column
+  (`image_thumbnail_url` = `image_url` + `&width=300`): never stored.
 
 ## Column names
 - Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
