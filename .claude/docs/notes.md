@@ -9,12 +9,19 @@
   10 required params (`entry_count` missing, so later args shift; `publ_skip_ids`, `source_skip_ids`,
   `topic_info_d` missing). Only `threads=1` works.
 - `flatten_merged_entries(overwrite=...)` ignores its argument (always passes `overwrite=False`).
-- `__main__` has a stray `exit(1)` after `flatten_sources()` that stops before works.
+- `__main__` is hand-edited per run (README step 5); the `exit(1)` after `flatten_sources()` is a run guard,
+  but it exits non-zero on success.
 - No START/END markers or SIGTERM handling yet (see `data.md`).
+
+## Yoda env drift (found 2026-10-28, unresolved)
+- Yoda's `pyproject.toml`/`uv.lock` (2025-06-28) differ from local: Yoda has `seaborn`, `requests`,
+  `jupyterlab`, `ipykernel`, `brotli`, `requires-python >=3.12`; local has `>=3.13` and lacks those.
+  `src/utils.py` on Yoda is older than local. Reconcile deps before the first `make sync`, or the next
+  `uv sync` on Yoda may drop Jupyter/seaborn or rebuild the venv.
 
 ## Other debt
 - `src/utils.py:451` uses `display` (notebook-only name); `peek_parquet` fails outside Jupyter.
-- `src/utils.py` imports `requests`, which isn't a direct dependency in `pyproject.toml`.
+- `src/utils.py` imports `requests` and `seaborn`, neither a direct dependency in local `pyproject.toml`.
 - `string_to_bool` calls `eval()` on input strings.
 - `data/works_authors_small.parquet` is tracked in git (violates no-data rule); `git rm --cached` if agreed.
 - `ruff` and `pandas-stubs` are in main deps; belong in the dev group.
