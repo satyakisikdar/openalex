@@ -5,4 +5,5 @@
 - Tooling: `make check` (ruff, ty, pytest), `.githooks/pre-commit`, `make sync` (rsync to Yoda), first tests
   for ID/abstract parsers. Legacy code exempted via explicit baseline in `pyproject.toml`.
 - Added `brotli` as a direct dependency; untracked `data/works_authors_small.parquet` (kept on disk).
+- Aligned deps with Yoda (Python >=3.12, seaborn, requests, jupyterlab, ipykernel); first `make sync` done.
 - Open: non-atomic Parquet writes and other bugs in `flatten_openalex_files.py` (see `.claude/docs/notes.md`).

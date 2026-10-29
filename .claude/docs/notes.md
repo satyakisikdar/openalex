@@ -13,16 +13,12 @@
   but it exits non-zero on success.
 - No START/END markers or SIGTERM handling yet (see `data.md`).
 
-## Yoda env drift (found 2026-10-28, unresolved)
-- Yoda's `pyproject.toml`/`uv.lock` (2025-06-28) differ from local: Yoda has `seaborn`, `requests`,
-  `jupyterlab`, `ipykernel`, `requires-python >=3.12` (venv is Python 3.12.11); local has `>=3.13` and
-  lacks those. `brotli` is now in both (required: Parquet is written with brotli compression).
-  `src/utils.py` on Yoda is older than local. Reconcile deps before the first `make sync`, or the next
-  `uv sync` on Yoda may drop Jupyter/seaborn or rebuild the venv.
+## Yoda env drift (resolved 2026-10-28)
+- Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
+  brotli) and Yoda's code was synced. `uv sync` has not yet been run on Yoda.
 
 ## Other debt
 - `src/utils.py:451` uses `display` (notebook-only name); `peek_parquet` fails outside Jupyter.
-- `src/utils.py` imports `requests` and `seaborn`, neither a direct dependency in local `pyproject.toml`.
 - `string_to_bool` calls `eval()` on input strings.
 - `ruff` and `pandas-stubs` are in main deps; belong in the dev group.
 

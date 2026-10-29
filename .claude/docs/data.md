@@ -4,7 +4,7 @@
 - Run host: Yoda only (`ssh yoda`). Nothing data-related runs on the Mac.
 - Code on Yoda: `/home/ssikdar/PycharmProjects/openalex` (rsync target, no git). Push with `make sync`
   (excludes in `.rsync-exclude`; no `--delete`, so Yoda-only files like `data/`, `test.pq` survive).
-  Sync before every run. Open: Yoda deps drifted from local; see `notes.md` before first sync.
+  Sync before every run.
 - `BASEDIR` is picked by hostname at the top of `preprocessing/flatten_openalex_files.py`
   (`yoda` -> `/data/shared/OpenAlex`, `quartz*` -> IU HPC path). `MONTH` (e.g. `mar-2026`) is hard-coded there.
   - Snapshot: `$BASEDIR/openalex-snapshot/data/<entity>/updated_date=*/part_*.gz` + `manifest`.
