@@ -5,7 +5,7 @@
 - Works Parquet writes are now crash-safe: `src/parquet_io.atomic_write_parquet` writes `<name>.partial-<pid>`,
   `Path.replace()`s onto the target, removes stale partials on re-run. Tests cover crash and re-run.
 - All Parquet writes in `merge_all_skip_ids` and `filter_dataset.py` are atomic too; `merge_all_skip_ids` now
-  writes for a single CSV and honours `overwrite`. Both scripts handle SIGTERM (`src/runtime.py`).
+  writes for a single CSV and honors `overwrite`. Both scripts handle SIGTERM (`src/runtime.py`).
 - Fixed `filter_dataset.py` early-return and `idx=` bugs. `peek_parquet` works outside Jupyter; audited raw
   authors/institutions/sources Parquet against the old schema (new columns in `notes.md`, pending approval).
 

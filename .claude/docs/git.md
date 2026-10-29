@@ -10,6 +10,6 @@
 - Stage explicit paths only; never `git add -A` / `-u` (the user often has uncommitted WIP in `.idea/`,
   notebooks and `flatten_openalex_files.py`).
 - Never force-push main (`--force-with-lease` only on your own unmerged branch).
-- Never commit data (`data/`, `*.parquet`, `*.csv.gz`), DB files, logs or secrets. Scan
+- Never commit data (`data/`, `*.parquet`, `*.csv.gz`), DB files, logs, or secrets. Scan
   `git diff --cached --stat` before committing and pushing.
 - Push when someone needs the change, and at session wrap-up.

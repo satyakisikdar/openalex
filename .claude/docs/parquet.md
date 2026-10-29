@@ -1,5 +1,7 @@
 # Optimized Parquet guide (OpenAlex Parquet snapshot -> optimized tables)
 
+Per-snapshot table specs: `schema-oct-2026.md` (institutions, sources, topic hierarchy; proposed).
+
 OpenAlex now ships Parquet per table. We convert those into **optimized** Parquet. Everything below applies
 to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) remains the schema reference.
 
@@ -25,10 +27,10 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   - per table dir: pyarrow `_metadata` + `_common_metadata` (`pq.write_metadata`; schema and row-group
     stats for fast planning) and `_manifest.json` (per file: name, rows, bytes, row groups; table totals,
     schema, source snapshot date, build time).
-  - top level: `oct-2026/_manifest.json` summarising every table.
+  - top level: `oct-2026/_manifest.json` summarizing every table.
   - Leading `_` keeps these out of pandas/pyarrow directory reads (they skip `_`/`.` names); in DuckDB read
     `'<table>/*.parquet'`. Never a bare `manifest.json` next to the data: that breaks directory reads.
-- Must read cleanly in **pandas, pyarrow and DuckDB**. Every new table gets a check that reads it with all
+- Must read cleanly in **pandas, pyarrow, and DuckDB**. Every new table gets a check that reads it with all
   three and compares schema and row count against the raw table. A table isn't done until that passes.
 - Compression: brotli.
 - No `key=value` partition dirs that repeat a column name (the raw snapshot's `updated_date=*/` + `updated_date`

@@ -6,13 +6,13 @@ Parses OpenAlex snapshot JSONL (`.gz`) files into per-table Parquet (and CSV) fi
 those into **optimized** Parquet (numeric IDs, tight types, brotli). Helpers live in `src/`. Ignore `_old/`.
 
 ## Non-negotiables
-- **Nothing data-related runs on this Mac.** Snapshots, Parquet outputs and all databases live on Yoda
+- **Nothing data-related runs on this Mac.** Snapshots, Parquet outputs, and all databases live on Yoda
   (`ssh yoda`, repo at `yoda:/home/ssikdar/PycharmProjects/openalex`, data at `/data/shared/OpenAlex`).
   Edit locally, `make sync` (rsync), run there. Only `make check` (lint/types/tests, no data) runs locally.
 - The Mac git checkout is the source of truth; Yoda's copy is an rsync target with no git history.
 - `make check` (ruff, ty, pytest) must pass before every commit via the pre-commit hook. Never `--no-verify`.
 - Every output write is crash-safe and re-runnable: build `<name>.partial-<pid>`, then atomic replace.
-- Never commit data, logs or secrets. Never delete outputs on Yoda without asking.
+- Never commit data, logs, or secrets. Never delete outputs on Yoda without asking.
 - **Yoda disk is tight:** `/data` was 82% full on 2026-10-29 (1.1 TB free of 6.1 TB), with ~400 GB of the
   works Parquet download still to land. Run `df -h /data` and estimate output size before any big write;
   stop and ask if it would leave under ~200 GB free. Freeing space (old snapshots) is the user's call.
@@ -34,4 +34,6 @@ those into **optimized** Parquet (numeric IDs, tight types, brotli). Helpers liv
 - Get an advisor/second opinion before consequential steps (approach, schema/data changes, shared resources,
   bulk or irreversible ops, review findings, declaring done, committing). Write results to disk first. If
   advice conflicts with evidence, say so.
-- README changes only when entry points, architecture or key numbers change; no dated sections in it.
+- README changes only when entry points, architecture, or key numbers change; no dated sections in it.
+- Writing style everywhere (docs, comments, commits, messages): US English spelling, Oxford commas, no em
+  dashes.
