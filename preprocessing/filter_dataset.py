@@ -9,9 +9,13 @@ Essentially, read the whole CSVs in chunks, filtering them, and writing them bac
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+import sys
 from pathlib import Path
 import pandas as pd
 from tqdm.auto import tqdm
+
+sys.path.extend(['../', './'])
+from src.parquet_io import atomic_write_parquet
 
 # STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
 STRING_DTYPE = 'string[python]'
@@ -107,7 +111,7 @@ def process_work_chunk(df, chunk_name, parq_path, year_range=(2012, 2022)):
     )
 
     filt_df.set_index('work_id', inplace=True)
-    filt_df.to_parquet(parq_filename)
+    atomic_write_parquet(filt_df, parq_filename)
 
     return len(filt_df)
 
@@ -173,7 +177,7 @@ def write_filtered_works_table(csv_path, parq_path):
 
     # write a single parquet for all the parts
     split_df = pd.read_parquet(parq_path / f'_works')
-    split_df.to_parquet(works_parq_filename)
+    atomic_write_parquet(split_df, works_parq_filename)
 
     # delete the partial parquets
     # shutil.rmtree(parq_path / f'_works')  # todo: testing needed
@@ -222,11 +226,11 @@ def write_other_filtered_tables(csv_path, parq_path, work_ids):
                     )
 
                 filt_df.rename(columns={'date': 'publication_date', 'year': 'publication_year'}, inplace=True)
-                filt_df.to_parquet(parq_filename, engine='pyarrow')
+                atomic_write_parquet(filt_df, parq_filename, engine='pyarrow')
 
         # write a single parquet for all the parts
         split_df = pd.read_parquet(parq_path / f'_works_{kind}')
-        split_df.to_parquet(final_parq_path)
+        atomic_write_parquet(split_df, final_parq_path)
 
         # delete the partial parquets
         # shutil.rmtree(parq_path / f'_works_{kind}')  # TODO: testing needed
@@ -280,7 +284,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
                         [filt_df.referenced_work_id.isin(work_ids)]
                     )
                 # filt_df.info()
-                filt_df.to_parquet(parq_filename, engine='pyarrow')
+                atomic_write_parquet(filt_df, parq_filename, engine='pyarrow')
                 row_counts += len(filt_df)
 
                 pbar.update(1)
