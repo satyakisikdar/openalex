@@ -8,6 +8,7 @@
 - `BASEDIR` is picked by hostname at the top of `preprocessing/flatten_openalex_files.py`
   (`yoda` -> `/data/shared/OpenAlex`, `quartz*` -> IU HPC path). `MONTH` (e.g. `mar-2026`) is hard-coded there.
   - Snapshot: `$BASEDIR/openalex-snapshot/data/<entity>/updated_date=*/part_*.gz` + `manifest`.
+  - Parquet snapshot (raw, from OpenAlex): `$BASEDIR/openalex-snapshot/data/parquet/<table>/`; see `parquet.md`.
   - Outputs: `$BASEDIR/processed-snapshots/{csv-files,parquet-files}/<MONTH>/`.
   - Works Parquet: one file per input part per table, `works_<table>/<date>_part_NNN.parquet`.
 - Long jobs: run under `tmux`/`nohup` on Yoda with a log file, never in a foreground ssh session.

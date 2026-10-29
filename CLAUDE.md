@@ -2,7 +2,8 @@
 
 Parses OpenAlex snapshot JSONL (`.gz`) files into per-table Parquet (and CSV) files. The workhorse is
 `preprocessing/flatten_openalex_files.py`: one `flatten_<entity>()` per entity, `flatten_works_v3()` for works
-(~20 h, resumable via `temp/finished_works.txt`). Helpers live in `src/`. Ignore `_old/`.
+(~20 h, resumable via `temp/finished_works.txt`). OpenAlex now also ships Parquet per table; we convert
+those into **optimized** Parquet (numeric IDs, tight types, brotli). Helpers live in `src/`. Ignore `_old/`.
 
 ## Non-negotiables
 - **Nothing data-related runs on this Mac.** Snapshots, Parquet outputs and all databases live on Yoda
@@ -19,6 +20,7 @@ Parses OpenAlex snapshot JSONL (`.gz`) files into per-table Parquet (and CSV) fi
 |---|---|
 | Writing or changing code, tests, deps, tooling | `.claude/docs/dev.md` |
 | Running anything on Yoda, touching outputs, long jobs, `flatten_openalex_files.py` | `.claude/docs/data.md` |
+| Reading OpenAlex Parquet, building or changing optimized Parquet tables | `.claude/docs/parquet.md` |
 | Committing, branching, merging, pushing | `.claude/docs/git.md` |
 | Known bugs, debt baseline, dropped approaches, benchmarks | `.claude/docs/notes.md` |
 | Finishing a major task | add to `progress.md` (`## YYYY-MM-DD`, newest first, reuse today's heading) |
