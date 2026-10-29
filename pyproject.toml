@@ -14,3 +14,36 @@ dependencies = [
     "ujson>=5.11.0",
     "unidecode>=1.4.0",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ty>=0.0.94"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["_old", "notebooks"]
+
+[tool.ruff.format]
+quote-style = "single"
+# Legacy files are not yet formatted; drop each from this list when it gets cleaned up.
+exclude = ["src/*.py", "preprocessing/*.py", "refactor_SciSciNetv2.py", "main.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "PTH", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy debt baseline (see .claude/docs/notes.md). New code must not add to it.
+"src/*.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"preprocessing/*.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"refactor_SciSciNetv2.py" = ["E", "F", "W", "I", "PTH", "UP"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[[tool.ty.overrides]]
+# Legacy debt baseline (46 diagnostics); remove a file from here once it type-checks.
+include = ["src/utils.py", "src/entities.py", "src/objects.py"]
+rules = { all = "ignore" }

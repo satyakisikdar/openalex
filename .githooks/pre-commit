@@ -1,0 +1,3 @@
+#!/bin/sh
+# Gate every commit on the full check. Never bypass with --no-verify.
+exec make check

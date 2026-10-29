@@ -1,0 +1,11 @@
+.git/
+.venv/
+.idea/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+__pycache__/
+.DS_Store
+_old/
+data/
+notebooks/dask-worker-space/
