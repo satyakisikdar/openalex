@@ -20,3 +20,7 @@ Updated: Jan 16, 2026
 
 * flattening _authors_ and _works_ take anywhere between 15 and 30 hours. The code will cache the files, so you
   should consider running it in batches by setting the `files_to_process` variable.
+
+## Development
+- `make setup` once (installs deps, enables the pre-commit hook), `make check` for lint/types/tests.
+- Code runs on the processing server, not locally: `make sync` rsyncs the repo there.
