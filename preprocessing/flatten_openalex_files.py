@@ -38,7 +38,7 @@ else:
 print(f'{hostname=} {BASEDIR=}')
 
 SNAPSHOT_DIR = BASEDIR / 'openalex-snapshot'
-MONTH = 'feb-2026'
+MONTH = 'mar-2026'
 
 CSV_DIR = BASEDIR / 'processed-snapshots' / 'csv-files' / MONTH
 PARQ_DIR = BASEDIR / 'processed-snapshots' / 'parquet-files' / MONTH
@@ -488,13 +488,19 @@ csv_files = dict(
             "columns": [
                 "source_id",
                 "source_name",
+                "type",
                 "issn_l",
                 "issn",
-                "publisher",
+                "host_organization",
+                "host_organization_name",
                 "works_count",
+                "oa_works_count",
                 "cited_by_count",
+                "2yr_mean_citedness",
+                "country_code",
                 "is_oa",
                 "is_in_doaj",
+                "is_core",
                 "homepage_url",
                 "works_api_url",
                 "updated_date",
@@ -1104,6 +1110,10 @@ def flatten_sources():
 
                     source['source_id'] = source_id
                     source['source_name'] = source['display_name']
+                    source['host_organization'] = convert_openalex_id_to_int(source['host_organization'])
+
+                    if summary_stats := source.get('summary_stats'):
+                        source['2yr_mean_citedness'] = summary_stats.get('2yr_mean_citedness')
 
                     seen_source_ids.add(source_id)
 
@@ -2218,7 +2228,8 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
             ('doi', pa.utf8()),
             ('title', pa.utf8()),
             ('publication_year', pa.int16()),
-            ('publication_date', pa.timestamp('ms')),
+            # ('publication_date', pa.timestamp('ms')),
+            ('publication_date', pa.date32()),
             ('type', pa.dictionary(pa.int8(), pa.utf8())),
             ('type_crossref', pa.dictionary(pa.int8(), pa.utf8())),
             ('cited_by_count', pa.uint32()),
@@ -2354,14 +2365,15 @@ if __name__ == '__main__':
     start_time = time()
     print(f'Starting at {datetime.now().strftime("%c").strip()}')
 
-    # flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
+    flatten_merged_entries()  # merges all skip_ids into a single parquet - RUN before flattening works
 
     # flatten_funders()
     # flatten_concepts()  # takes about 30s
     # flatten_institutions()  # takes about 20s
     # flatten_publishers()
-    #flatten_sources()
+    flatten_sources()
     # flatten_topics()
+    exit(1)
 
     # files_to_process = 'all'  # to do everything
     files_to_process = 100 # or any other number
