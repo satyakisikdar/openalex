@@ -13,8 +13,8 @@ those into **optimized** Parquet (numeric IDs, tight types, brotli). Helpers liv
 - `make check` (ruff, ty, pytest) must pass before every commit via the pre-commit hook. Never `--no-verify`.
 - Every output write is crash-safe and re-runnable: build `<name>.partial-<pid>`, then atomic replace.
 - Never commit data, logs, or secrets. Never delete outputs on Yoda without asking.
-- **Yoda disk is tight:** `/data` was 82% full on 2026-10-29 (1.1 TB free of 6.1 TB), with ~400 GB of the
-  works Parquet download still to land. Run `df -h /data` and estimate output size before any big write;
+- **Yoda disk is tight:** `/data` was 82% full on 2026-10-29 (1.1 TB free), later 63% (2.1 TB free of 5.7 TB),
+  with ~400 GB of the works Parquet download still to land. Run `df -h /data` and estimate output size before any big write;
   stop and ask if it would leave under ~200 GB free. Freeing space (old snapshots) is the user's call.
 
 ## Before a task, read every guide whose trigger matches

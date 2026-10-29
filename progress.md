@@ -8,6 +8,10 @@
   writes for a single CSV and honors `overwrite`. Both scripts handle SIGTERM (`src/runtime.py`).
 - Fixed `filter_dataset.py` early-return and `idx=` bugs. `peek_parquet` works outside Jupyter; audited raw
   authors/institutions/sources Parquet against the old schema (new columns in `notes.md`, pending approval).
+- Approved the oct-2026 schema for institutions, sources, and the topic hierarchy (`schema-oct-2026.md`) and
+  built the converter (`preprocessing/optimize_parquet.py`, `src/optimize.py`); DuckDB added as a dev
+  dependency and installed on Yoda. 24 tests pass. Not yet run on real data: next step is the dry run, then
+  the real write to `oct-2026/` (user asked to hold all Parquet writes on 2026-10-29).
 
 ## 2026-10-28
 - Set up `CLAUDE.md` + `.claude/docs/` guides (dev, data, git, notes) and this file.
