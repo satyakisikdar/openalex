@@ -29,11 +29,23 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
 ## Types
 - Start from the old flattener's schema: `DTYPES` (`flatten_openalex_files.py:679`) and the per-table
   `pa.schema(...)` blocks in `write_to_csv_and_parquet` (~line 2227 onward).
-- Use the smallest type that fits: dates `date32`, timestamps `timestamp('ms')`, counts `uint32`, flags
-  `bool`, low-cardinality strings (type, country_code, ...) dictionary-encoded.
+- **Every column gets the tightest type its real range allows**, not just IDs. Examples: author count per
+  work is small and never negative (`uint16`), citation counts are larger but never negative (`uint32`),
+  flags `bool`, dates `date32`, timestamps `timestamp('ms')`, low-cardinality strings (type, country_code,
+  ...) dictionary-encoded.
+  - Pick types from observed min/max (DuckDB `min()/max()` over the raw table), with headroom for growth.
+    Record the chosen type and observed range per column in `notes.md`.
+  - Cast with overflow checking (pyarrow `cast(..., safe=True)`) so a value outside the range fails loudly
+    instead of wrapping.
 - **OpenAlex IDs: keep only the numeric part** (`https://openalex.org/W2741809807` -> `2741809807`), stored
   as `int64` (author IDs such as `5317838346` already exceed `uint32`). Applies to every ID column and to
   ID lists (e.g. `referenced_works` -> `list<int64>`). Reuse the `convert_openalex_id_to_int` /
   `convert_topic_id_to_int` logic from `src/utils.py`, but vectorized (pyarrow/DuckDB string ops), not
   per-row Python.
 - External IDs (DOI, ORCID, ROR, ...) are undecided; keep as-is until the user decides.
+
+## Column names
+- Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
+  (`flatten_openalex_files.py`, top of file), e.g. `work_id`, `institution_id`, `institution_name`.
+- Columns in the raw Parquet with no counterpart in the old schema: **list them for the user (name, type,
+  example values) and get approval before adding them.** Don't add or rename on your own.
