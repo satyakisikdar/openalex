@@ -12,11 +12,6 @@
   but it exits non-zero on success.
 - No START/END log markers yet (see `data.md`). SIGTERM is handled (`src.runtime.exit_on_sigterm`).
 
-## Known bugs in `preprocessing/filter_dataset.py` (open)
-- `write_other_filtered_tables_v2`: `return` instead of `continue` when a kind is already complete, so all
-  later kinds are skipped.
-- `write_filtered_works_table` calls `process_work_chunk(..., idx=i)`; the function has no `idx` parameter.
-
 ## Yoda env drift (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
   brotli); code synced and `uv sync` run on Yoda 2026-10-29 (3.12.11 venv kept).

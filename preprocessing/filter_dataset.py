@@ -174,7 +174,7 @@ def write_filtered_works_table(csv_path, parq_path):
     with pd.read_csv(csv_path / f'works.csv.gz', engine='c', chunksize=chunksize, dtype=dtypes['works']) as reader:
         # TODO: process each chunk in parallel
         for i, chunked_df in tqdm(enumerate(reader), total=num_chunks['works_works'], desc='Filtering works...'):
-            process_work_chunk(df=chunked_df, idx=i, parq_path=parq_path)
+            process_work_chunk(df=chunked_df, chunk_name=f'part-{i}', parq_path=parq_path)
 
     # write a single parquet for all the parts
     split_df = pd.read_parquet(parq_path / f'_works')
@@ -256,7 +256,7 @@ def write_other_filtered_tables_v2(whole_parq_path, filt_parq_path, work_ids):
 
         if len(existing_filtered_chunks_paths) == len(whole_table_chunks_paths):
             print(f'Complete filtered {kind!r} found at {str(final_parq_path)!r}')
-            return
+            continue
 
         row_counts = 0
 
