@@ -23,8 +23,9 @@ Top-level columns are identical across every file of each table. "New" = no old 
 - **institutions** (143,455 rows, 83 files). New: `lineage`, `is_super_system`, `type_id`, `image_url`,
   `image_thumbnail_url`, `roles`, `repositories`, `topics`, `topic_share`, `summary_stats`, `status`,
   `works_api_url`, `created_date`; `associated_institutions` now also carries `ror/display_name/
-  country_code/type`. Gone: `ids.mag`. Old bug: flattener reads `display_name_acroynyms` (typo), so the
-  old column was always empty; raw has `display_name_acronyms`.
+  country_code/type`. Gone: `ids.mag`. Old bug: flattener reads `display_name_acroynyms` (typo,
+  `flatten_openalex_files.py:1355`), so the old column is the string `'null'` in all 114,881 rows of
+  `csv-files/may-2025/institutions.csv.gz`; raw has `display_name_acronyms` (e.g. `['UMNG']`).
 - **sources** (268,629 rows, 136 files). New: `host_organization_lineage`, `summary_stats.h_index/i10_index`,
   `is_in_doaj_since_year`, `is_high_oa_rate`, `is_high_oa_rate_since_year`, `is_in_scielo`, `is_ojs`,
   `listed_in`, `is_preprint_repository`, `oa_flip_year`, `first_publication_year`, `last_publication_year`,
