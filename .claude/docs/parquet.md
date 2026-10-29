@@ -16,8 +16,18 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   `print(sample_df.to_string())` when first needed.
 
 ## Output
-- Location: `/data/shared/OpenAlex/processed-snapshots/parquet-files/<mon>-<yyyy>/<table>/`
-  (lowercase 3-letter month, like existing `feb-2026`, `mar-2026`; this snapshot is `oct-2026`).
+- Location: `/data/shared/OpenAlex/processed-snapshots/parquet-files/<mon>-<yyyy>/` (lowercase 3-letter
+  month, like existing `feb-2026`, `mar-2026`; this snapshot is `oct-2026`).
+- Layout: **one top-level dir per table, flat**, holding only that table's Parquet files:
+  `oct-2026/works/part-00000.parquet`, `oct-2026/works_authorships/...`, `oct-2026/authors_counts_by_year/...`.
+  No per-entity nesting, no partition subdirs.
+- **Metadata is stored with the data** (*proposed layout, awaiting user confirmation*):
+  - per table dir: pyarrow `_metadata` + `_common_metadata` (`pq.write_metadata`; schema and row-group
+    stats for fast planning) and `_manifest.json` (per file: name, rows, bytes, row groups; table totals,
+    schema, source snapshot date, build time).
+  - top level: `oct-2026/_manifest.json` summarising every table.
+  - Leading `_` keeps these out of pandas/pyarrow directory reads (they skip `_`/`.` names); in DuckDB read
+    `'<table>/*.parquet'`. Never a bare `manifest.json` next to the data: that breaks directory reads.
 - Must read cleanly in **pandas, pyarrow and DuckDB**. Every new table gets a check that reads it with all
   three and compares schema and row count against the raw table. A table isn't done until that passes.
 - Compression: brotli.
@@ -39,9 +49,10 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
     Record the chosen type and observed range per column in `notes.md`.
   - Cast with overflow checking (pyarrow `cast(..., safe=True)`) so a value outside the range fails loudly
     instead of wrapping.
+  - User-set exceptions: `sources.is_high_oa_rate_since_year` stays `int32`.
 - **OpenAlex IDs: keep only the numeric part** (`https://openalex.org/W2741809807` -> `2741809807`), stored
-  as `int64` (author IDs such as `5317838346` already exceed `uint32`). Applies to every ID column and to
-  ID lists (e.g. `referenced_works` -> `list<int64>`). Reuse the `convert_openalex_id_to_int` /
+  as `int64` (author IDs such as `5317838346` already exceed `uint32`). Applies to every ID column,
+  including ID lists once split into their own tables (`works_referenced_works.referenced_work_id`). Reuse the `convert_openalex_id_to_int` /
   `convert_topic_id_to_int` logic from `src/utils.py`, but vectorized (pyarrow/DuckDB string ops), not
   per-row Python.
 - **Other canonical IDs: drop the constant, redundant part so the original is trivial to rebuild**
@@ -62,8 +73,20 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
     passes through.
   - Already-short IDs (MAG ints, ISSN `1234-567X`) stay as they are.
 
+## Tables and columns
+- **Every multivalued (list) column becomes its own table** `<parent>_<column>`, keyed by the parent ID,
+  one row per element, struct fields as columns. Nested lists are exploded further (e.g. author
+  affiliations: one row per author, institution, year). Old table names win where they exist
+  (`authors_counts_by_year`, `institutions_associated_institutions`, `works_referenced_works`, ...).
+  Optimized tables have no list columns.
+- 1:1 structs (e.g. `summary_stats`) become columns of the parent table, except where the old flattener
+  had a separate table for them (`<x>_ids`, `institutions_geo`); keep those tables.
+- Drop API URL columns (`works_api_url` and similar): never stored.
+
 ## Column names
 - Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
   (`flatten_openalex_files.py`, top of file), e.g. `work_id`, `institution_id`, `institution_name`.
+- Fix typos in old names instead of copying them (`display_name_acroynyms` -> `display_name_acronyms`);
+  log each fix in `notes.md`.
 - Columns in the raw Parquet with no counterpart in the old schema: **list them for the user (name, type,
   example values) and get approval before adding them.** Don't add or rename on your own.

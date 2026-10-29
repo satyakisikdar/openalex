@@ -12,7 +12,12 @@
   but it exits non-zero on success.
 - No START/END log markers yet (see `data.md`). SIGTERM is handled (`src.runtime.exit_on_sigterm`).
 
-## Raw Parquet vs old flattener schema (snapshot 2026-10-14; awaiting user approval)
+## Raw Parquet vs old flattener schema (snapshot 2026-10-14)
+Decided 2026-10-29: new columns kept, except API URL columns (`works_api_url`, ...) which are dropped; list
+columns split into child tables (so `last_known_institutions` -> `authors_last_known_institutions`); old
+typos fixed (`display_name_acroynyms` -> `display_name_acronyms`); `is_high_oa_rate_since_year` int32.
+Open: is `image_thumbnail_url` (= `image_url` + `&width=300`) also dropped? Metadata layout in `parquet.md`
+awaits confirmation.
 Top-level columns are identical across every file of each table. "New" = no old column maps to it.
 - **authors** (101,066,311 rows, 517 files). New: `raw_author_names`, `full_name`, `observed_orcids`
   (also `ids.observed_orcids`), `summary_stats{2yr_mean_citedness,h_index,i10_index}`, `affiliations`
