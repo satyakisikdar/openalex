@@ -42,7 +42,23 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   ID lists (e.g. `referenced_works` -> `list<int64>`). Reuse the `convert_openalex_id_to_int` /
   `convert_topic_id_to_int` logic from `src/utils.py`, but vectorized (pyarrow/DuckDB string ops), not
   per-row Python.
-- External IDs (DOI, ORCID, ROR, ...) are undecided; keep as-is until the user decides.
+- **Other canonical IDs: drop the constant, redundant part so the original is trivial to rebuild**
+  (`prefix + value`). Keep the variable part; store it as an integer when it is purely numeric, else a
+  string. Expected shapes (verify each against `peek_parquet` output before relying on it):
+
+  | ID | Raw example | Stored | Rebuild |
+  |---|---|---|---|
+  | DOI | `https://doi.org/10.1000/xyz` | `10.1000/xyz` (string) | `https://doi.org/` + value |
+  | ORCID | `https://orcid.org/0000-0002-1825-0097` | `0000-0002-1825-0097` (string; last char can be `X`) | `https://orcid.org/` + value |
+  | ROR | `https://ror.org/02mhbdp94` | `02mhbdp94` (string) | `https://ror.org/` + value |
+  | PMID | `https://pubmed.ncbi.nlm.nih.gov/123` | `123` (`int64`) | prefix + value |
+  | PMCID | `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123` | `123` (`int64`) | prefix + `PMC` + value |
+  | Wikidata | `https://www.wikidata.org/wiki/Q123` | `123` (`int64`) | prefix + `Q` + value |
+
+  - One prefix per column. Keep the column -> prefix map as one constant in code and copy it into this table.
+  - A value that doesn't start with the expected prefix fails loudly (count and examples), never silently
+    passes through.
+  - Already-short IDs (MAG ints, ISSN `1234-567X`) stay as they are.
 
 ## Column names
 - Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
