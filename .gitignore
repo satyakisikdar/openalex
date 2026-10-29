@@ -130,3 +130,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Local data and junk (never commit data)
+data/
+*.parquet
+*.csv.gz
+.DS_Store
+notebooks/dask-worker-space/
+.ruff_cache/
