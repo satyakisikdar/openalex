@@ -856,7 +856,7 @@ def merge_all_skip_ids(kind, overwrite):
         print(f'Merged parquet for {kind} exists! Skipping....')
         return
 
-    csvs = list(merged_entries_path.glob('*.csv.gz'))
+    csvs = sorted(merged_entries_path.glob('*.csv.gz'))  # sorted so output is deterministic
     if len(csvs) == 0:
         print(f'No merged ids CSVs found in {merged_entries_path}')
         return
@@ -870,10 +870,9 @@ def merge_all_skip_ids(kind, overwrite):
         )
         merged_dfs.append(merged_df)
 
-    if len(merged_dfs) > 1:
-        combined_df = pd.concat(merged_dfs, ignore_index=True).drop_duplicates()
-        print(f'Writing {len(combined_df):,} rows of merged skip ids for {kind!r} at {str(merged_entries_path)!r}')
-        combined_df.to_parquet(merged_parq_path, engine='pyarrow')
+    combined_df = pd.concat(merged_dfs, ignore_index=True).drop_duplicates()
+    print(f'Writing {len(combined_df):,} rows of merged skip ids for {kind!r} at {str(merged_parq_path)!r}')
+    atomic_write_parquet(combined_df, merged_parq_path, engine='pyarrow')
     return
 
 
@@ -2359,7 +2358,7 @@ def flatten_merged_entries(overwrite=False):
     kinds = list(map(lambda s: s.stem, merged_entries_path.glob('*')))
     for kind in tqdm(kinds, desc=f'Flattening merged entries'):
         print(f'{kind=}')
-        merge_all_skip_ids(kind=kind, overwrite=False)
+        merge_all_skip_ids(kind=kind, overwrite=overwrite)
 
 
 if __name__ == '__main__':
