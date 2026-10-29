@@ -3,7 +3,8 @@
 Parses OpenAlex snapshot JSONL (`.gz`) files into per-table Parquet (and CSV) files. The workhorse is
 `preprocessing/flatten_openalex_files.py`: one `flatten_<entity>()` per entity, `flatten_works_v3()` for works
 (~20 h, resumable via `temp/finished_works.txt`). OpenAlex now also ships Parquet per table; we convert
-those into **optimized** Parquet (numeric IDs, tight types, brotli). Helpers live in `src/`. Ignore `_old/`.
+those into **optimized** Parquet (numeric IDs, tight types, brotli) with
+`preprocessing/optimize_parquet.py` (helpers in `src/optimize.py`). Helpers live in `src/`. Ignore `_old/`.
 
 ## Non-negotiables
 - **Nothing data-related runs on this Mac.** Snapshots, Parquet outputs, and all databases live on Yoda
