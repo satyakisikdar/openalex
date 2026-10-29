@@ -423,33 +423,33 @@ def parse_authorships(work_id, publication_year, authorships, author_skip_ids, i
     return authorship_rows, num_authors, has_complete_institution_info
 
 
-def peek_parquet(path):
+def peek_parquet(path: path_type, n: int = 5) -> None:
     """
-    peeks at a parquet file (or a directory containing parquet files) without reading the whole thing and prints the following:
-    * Path
-    * schema
-    * number of pieces (fragments)
-    * number of rows
+    Peek at a parquet file, or a directory of them (searched recursively; non-parquet files such as
+    manifest.json are ignored), without reading the data. Prints path, file count, row count (from file
+    metadata), the schema of the first file, and its first `n` rows. Works in plain scripts and Jupyter.
     """
-    parq_file = pypq.ParquetDataset(path)
-    piece_count = len(parq_file.fragments)
-    schema = textwrap.indent(parq_file.schema.to_string(), " " * 4)
-    row_count = sum(frag.count_rows() for frag in parq_file.fragments)
+    path = Path(path)
+    files = sorted(path.rglob('*.parquet')) if path.is_dir() else [path]
+    if not files:
+        raise SystemExit(f'No .parquet files found under {str(path)!r}; check the path or wait for the download.')
+
+    first = pypq.ParquetFile(files[0])
+    row_count = sum(pypq.ParquetFile(f).metadata.num_rows for f in files)
+    schema = textwrap.indent(first.schema_arrow.to_string(), ' ' * 4)
 
     st = [
-        f"Name: {path.stem!r}",
-        f"Path: {str(path)!r}",
-        f"Files: {piece_count:,}",
-        f"Rows: {row_count:,}",
-        f"Schema:\n{schema}",
-        f"5 random rows:",
+        f'Name: {path.stem!r}',
+        f'Path: {str(path)!r}',
+        f'Files: {len(files):,}',
+        f'Rows: {row_count:,}',
+        f'Schema (of {files[0].name!r}):\n{schema}',
+        f'First {n} rows of {files[0].name!r}:',
     ]
-    print("\n".join(st))
-    sample_df = (
-        parq_file.fragments[0].head(5).to_pandas()
-    )  # read 5 rows from the first fragment
-    display(sample_df)
-
+    print('\n'.join(st))
+    sample_df = next(first.iter_batches(batch_size=n)).to_pandas()
+    with pd.option_context('display.max_columns', None, 'display.width', 250, 'display.max_colwidth', 80):
+        print(sample_df.to_string())
     return
 
 
