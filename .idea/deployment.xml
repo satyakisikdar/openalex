@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="carbon" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="yoda-OpenAlex" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
-      <paths name="carbon">
+      <paths name="yoda-OpenAlex">
         <serverdata>
           <mappings>
-            <mapping deploy="/N/slate/ssikdar/py-temp/openalex" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/ssikdar/PycharmProjects/openalex" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
