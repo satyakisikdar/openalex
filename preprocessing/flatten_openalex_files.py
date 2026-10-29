@@ -24,6 +24,7 @@ sys.path.extend(['../', './'])
 from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest, \
     parallel_async, string_to_bool, parse_authorships, convert_topic_id_to_int
 from src.parquet_io import atomic_write_parquet
+from src.runtime import exit_on_sigterm
 
 warnings.simplefilter(action='ignore', category=FutureWarning)  # suppress pandas future warnings
 hostname = socket.gethostname()
@@ -2362,6 +2363,7 @@ def flatten_merged_entries(overwrite=False):
 
 
 if __name__ == '__main__':
+    exit_on_sigterm()  # so kills unwind and clean up partial files
     start_time = time()
     print(f'Starting at {datetime.now().strftime("%c").strip()}')
 

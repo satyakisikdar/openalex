@@ -16,6 +16,7 @@ from tqdm.auto import tqdm
 
 sys.path.extend(['../', './'])
 from src.parquet_io import atomic_write_parquet
+from src.runtime import exit_on_sigterm
 
 # STRING_DTYPE = 'string[pyarrow]'  # use the more memory efficient PyArrow string datatype
 STRING_DTYPE = 'string[python]'
@@ -368,4 +369,5 @@ def main_v2():
 
 
 if __name__ == '__main__':
+    exit_on_sigterm()  # so kills unwind and clean up partial files
     main_v2()

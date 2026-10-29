@@ -4,6 +4,8 @@
 - `uv sync` on Yoda (Python 3.12.11 venv kept); jupyter, seaborn, brotli verified.
 - Works Parquet writes are now crash-safe: `src/parquet_io.atomic_write_parquet` writes `<name>.partial-<pid>`,
   `Path.replace()`s onto the target, removes stale partials on re-run. Tests cover crash and re-run.
+- All Parquet writes in `merge_all_skip_ids` and `filter_dataset.py` are atomic too; `merge_all_skip_ids` now
+  writes for a single CSV and honours `overwrite`. Both scripts handle SIGTERM (`src/runtime.py`).
 
 ## 2026-10-28
 - Set up `CLAUDE.md` + `.claude/docs/` guides (dev, data, git, notes) and this file.
