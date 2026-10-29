@@ -21,6 +21,8 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
 - Must read cleanly in **pandas, pyarrow and DuckDB**. Every new table gets a check that reads it with all
   three and compares schema and row count against the raw table. A table isn't done until that passes.
 - Compression: brotli.
+- No `key=value` partition dirs that repeat a column name (the raw snapshot's `updated_date=*/` + `updated_date`
+  column breaks pyarrow's hive inference). Plain `part-NNNNN.parquet` files per table dir.
 - Split each table into multiple files with sensible row groups so readers can parallelize. Starting point,
   to be benchmarked and recorded in `notes.md`: row groups of ~1M rows, files of a few hundred MB.
 - Writes follow `data.md`: crash-safe (`src.parquet_io.atomic_write_parquet` or the same partial + replace
