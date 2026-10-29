@@ -20,6 +20,12 @@
    Resume state: `PARQ_DIR/temp/finished_works.txt` (a file is done when all 15 tables are recorded).
    `recompute_tables=[...]` forces those tables to be rebuilt.
 
+## Optimized Parquet converter
+- `uv run python -m preprocessing.optimize_parquet --dry-run <scratch>` writes under `<scratch>/oct-2026/`;
+  without `--dry-run` it writes to `parquet-files/oct-2026/`. `--entities institutions sources topics`.
+- Each table is checked with pyarrow, pandas, and DuckDB after writing (DuckDB is a dev dependency, so run
+  `uv sync` on Yoda first).
+
 ## Safety and idempotency (new and touched code)
 - Every script logs START and END markers (with timestamps), progress per stage/loop, and handles SIGTERM
   (log, remove its own partials, exit non-zero). A log with no END marker = killed run; flag it next run.

@@ -21,7 +21,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ty>=0.0.94"]
+dev = [
+    "duckdb>=2.0.0",
+    "pytest>=8.3",
+    "ty>=0.0.94",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -34,7 +38,7 @@ extend-exclude = ["_old", "notebooks"]
 [tool.ruff.format]
 quote-style = "single"
 # Legacy files are not yet formatted; drop each from this list when it gets cleaned up.
-exclude = ["src/utils.py", "src/entities.py", "src/objects.py", "src/globals.py", "preprocessing/*.py", "refactor_SciSciNetv2.py", "main.py"]
+exclude = ["src/utils.py", "src/entities.py", "src/objects.py", "src/globals.py", "preprocessing/flatten_openalex_files.py", "preprocessing/filter_dataset.py", "refactor_SciSciNetv2.py", "main.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "PTH", "UP"]
@@ -45,13 +49,15 @@ select = ["E", "F", "W", "I", "PTH", "UP"]
 "src/entities.py" = ["E", "F", "W", "I", "PTH", "UP"]
 "src/objects.py" = ["E", "F", "W", "I", "PTH", "UP"]
 "src/globals.py" = ["E", "F", "W", "I", "PTH", "UP"]
-"preprocessing/*.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"preprocessing/flatten_openalex_files.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"preprocessing/filter_dataset.py" = ["E", "F", "W", "I", "PTH", "UP"]
 "refactor_SciSciNetv2.py" = ["E", "F", "W", "I", "PTH", "UP"]
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src", "tests", "preprocessing"]
 
 [[tool.ty.overrides]]
 # Legacy debt baseline (46 diagnostics); remove a file from here once it type-checks.
-include = ["src/utils.py", "src/entities.py", "src/objects.py"]
+include = ["src/utils.py", "src/entities.py", "src/objects.py", "preprocessing/flatten_openalex_files.py",
+           "preprocessing/filter_dataset.py"]
 rules = { all = "ignore" }

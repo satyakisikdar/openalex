@@ -1,13 +1,16 @@
 # Optimized schema, oct-2026: institutions, sources, and topic hierarchy
 
-**Status: proposed (2026-10-29), awaiting user approval. Nothing written to `oct-2026/` yet.**
+**Status: approved 2026-10-29** (Decisions 1 to 4, 6, 8, and 9 as recommended; `legacy_keywords` dropped).
+The code is the source of truth: `SCHEMAS` in `preprocessing/optimize_parquet.py`. Column names below use the
+standardized names: `num_works` -> `num_works`, `num_citations` -> `num_citations`, `num_oa_works` ->
+`num_oa_works`, and per-topic `count` -> `num_works`. Every date column is `date32` (time of day dropped).
 Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observed over every row.
 
 ## Conventions used by every table
 - IDs keep only the numeric part. Types: institution, source, publisher, and funder IDs `int64`; `topic_id`
   and `subfield_id` `uint16`; `field_id` and `domain_id` `uint8` (observed values like `T14327`,
   `subfields/3312`, `fields/33`, `domains/4`; the checked cast confirms the fit at build time).
-- Counts `uint32` unless noted. Years `uint16`. Timestamps `timestamp[ms, tz=UTC]`.
+- Counts `uint32` unless noted. Years `uint16`. Dates `date32` (raw timestamps keep only the date).
 - `dict` = dictionary-encoded string (pandas `category`, DuckDB `VARCHAR`).
 - Child tables are keyed by the parent ID, one row per list element, and carry no parent name.
 - Every file is sorted by its key columns.
@@ -26,13 +29,13 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | status | dict | status | 3 values | new |
 | homepage_url | string | homepage_url | 4,726 null | |
 | image_url | string | image_url | 10,770 non-null | new |
-| works_count | uint32 | works_count | 0 to 42,682,843 | |
-| cited_by_count | uint32 | cited_by_count | 0 to 192,331,517 | |
+| num_works | uint32 | num_works | 0 to 42,682,843 | |
+| num_citations | uint32 | num_citations | 0 to 192,331,517 | |
 | 2yr_mean_citedness | float32 | summary_stats | 0 to 2,215.8 | new |
 | h_index | uint16 | summary_stats | 0 to 3,605 | new |
 | i10_index | uint32 | summary_stats | 0 to 2,623,490 | new |
-| updated_date | timestamp | updated_date | | |
-| created_date | timestamp | created_date | | new |
+| updated_date | date32 | updated_date | | |
+| created_date | date32 | created_date | | new |
 
 ### `institutions_ids` (old table)
 | Column | Type | Raw source | Observed | Note |
@@ -57,13 +60,13 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | Table | Columns (type) | Rows | Note |
 |---|---|---|---|
 | `institutions_associated_institutions` (old) | institution_id int64, associated_institution_id int64, relationship dict (5) | 74,210 | all IDs resolve to `institutions` |
-| `institutions_counts_by_year` (old) | institution_id int64, year uint16, works_count uint32, oa_works_count uint32, cited_by_count uint32 | 1,355,005 | see Decision 1 (bad years) |
+| `institutions_counts_by_year` (old) | institution_id int64, year uint16, num_works uint32, num_oa_works uint32, num_citations uint32 | 1,355,005 | see Decision 1 (bad years) |
 | `institutions_display_name_acronyms` | institution_id int64, display_name_acronym string | 63,915 | typo fixed |
 | `institutions_display_name_alternatives` | institution_id int64, display_name_alternative string | 275,242 | |
 | `institutions_lineage` | institution_id int64, ancestor_institution_id int64 | 39,573 | self entry dropped (always present) |
-| `institutions_roles` | institution_id int64, role dict (funder, publisher), role_id int64, works_count uint32 | 18,743 | self `institution` row dropped (always equals `works_count`) |
+| `institutions_roles` | institution_id int64, role dict (funder, publisher), role_id int64, num_works uint32 | 18,743 | self `institution` row dropped (always equals `num_works`) |
 | `institutions_repositories` | institution_id int64, source_id int64 | 3,641 | all IDs resolve to `sources` |
-| `institutions_topics` | institution_id int64, topic_id uint16, count uint32, score float32 | 2,628,985 | |
+| `institutions_topics` | institution_id int64, topic_id uint16, num_works uint32, score float32 | 2,628,985 | |
 | `institutions_topic_share` | institution_id int64, topic_id uint16, value float32 | 2,628,985 | topic sets differ from `topics` in 62% of rows, so separate |
 
 ## Sources
@@ -78,9 +81,9 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | host_organization | int64 | host_organization | 170,887 null | |
 | host_organization_type | dict | letter of host_organization | publisher 80,344, institution 17,398 | new, see Decision 8 |
 | host_organization_name | string | host_organization_name | | |
-| works_count | uint32 | works_count | 0 to 42,704,499 | |
-| oa_works_count | uint32 | oa_works_count | | |
-| cited_by_count | uint32 | cited_by_count | 0 to 44,806,220 | |
+| num_works | uint32 | num_works | 0 to 42,704,499 | |
+| num_oa_works | uint32 | num_oa_works | | |
+| num_citations | uint32 | num_citations | 0 to 44,806,220 | |
 | 2yr_mean_citedness | float32 | summary_stats | 0 to 1,566 | |
 | h_index | uint16 | summary_stats | 0 to 1,839 | new |
 | i10_index | uint32 | summary_stats | 0 to 932,403 | new |
@@ -96,13 +99,13 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | apc_usd | uint16 | apc_usd | 0 to 12,690 | new; not derivable (matches latest `apc_usd_by_year` in 12,180 of 12,411) |
 | homepage_url | string | homepage_url | | |
 | wikidata | uint32 | ids.wikidata | 74,488 non-null | folded in from old `sources_ids`, see Decision 3 |
-| updated_date | timestamp | updated_date | | |
-| created_date | timestamp | created_date | 17,168 null | new |
+| updated_date | date32 | updated_date | | |
+| created_date | date32 | created_date | 17,168 null | new |
 
 ### Child tables
 | Table | Columns (type) | Rows | Note |
 |---|---|---|---|
-| `sources_counts_by_year` (old) | source_id int64, year uint16, works_count uint32, cited_by_count uint32, oa_works_count uint32 | 3,502,191 | Decision 1 |
+| `sources_counts_by_year` (old) | source_id int64, year uint16, num_works uint32, num_citations uint32, num_oa_works uint32 | 3,502,191 | Decision 1 |
 | `sources_issn` | source_id int64, issn string | 269,467 | |
 | `sources_host_organization_lineage` | source_id int64, lineage_id int64, lineage_type dict | 17,011 | `host_organization` itself dropped (always present) |
 | `sources_listed_in` | source_id int64, listed_in dict (61) | 256,561 | |
@@ -110,7 +113,7 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | `sources_apc_usd_by_year` | source_id int64, year uint16, price uint16 | 69,279 | |
 | `sources_societies` | source_id int64, url string, organization string | 4,414 | |
 | `sources_alternate_titles` | source_id int64, alternate_title string | 124,108 | |
-| `sources_topics` | source_id int64, topic_id uint16, count uint32 | 5,809,836 | no score in raw |
+| `sources_topics` | source_id int64, topic_id uint16, num_works uint32 | 5,809,836 | no score in raw |
 | `sources_topic_share` | source_id int64, topic_id uint16, value float32 | 5,809,836 | |
 
 ## Topic hierarchy
@@ -121,13 +124,13 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | topic_id | uint16 | id | | |
 | topic_name | string | display_name | | |
 | description | string | description | max 828 chars | |
-| num_works | uint32 | works_count | 0 to 39,120,676 | old name kept, see Decision 7 |
-| cited_by_count | uint32 | cited_by_count | 0 to 9,223,797 | |
+| num_works | uint32 | num_works | 0 to 39,120,676 | old name kept, see Decision 7 |
+| num_citations | uint32 | num_citations | 0 to 9,223,797 | |
 | subfield_id | uint16 | subfield.id | | |
 | field_id | uint8 | field.id | | old column; derivable via `subfields` but kept |
 | domain_id | uint8 | domain.id | | same |
 | wikipedia | string | ids.wikipedia | | `lang:Title` (wikidata is null for every topic) |
-| updated_date, created_date | timestamp | same | | |
+| updated_date, created_date | date32 | same | | |
 
 Old `subfield_name`, `field_name`, and `domain_name` are dropped (join on the ID), see Decision 4.
 
@@ -138,17 +141,16 @@ Old `subfield_name`, `field_name`, and `domain_name` are dropped (join on the ID
 | subfield_name / field_name / domain_name | string | from display_name |
 | description | string | |
 | field_id, domain_id (subfields); domain_id (fields) | uint8 | parent links |
-| works_count | uint32 | max 159,164,265 (domains) |
-| cited_by_count | uint32 | max 1,138,281,592 (domains; 3.8x headroom) |
+| num_works | uint32 | max 159,164,265 (domains) |
+| num_citations | uint32 | max 1,138,281,592 (domains; 3.8x headroom) |
 | wikidata | uint32 | raw mixes `/entity/` and `/wiki/` URLs |
 | wikipedia | string | `lang:Title` |
-| updated_date, created_date | timestamp | |
+| updated_date, created_date | date32 | |
 
 ### Child tables
 | Table | Columns (type) | Rows | Note |
 |---|---|---|---|
 | `topics_keywords` (old) | topic_id uint16, keyword_id string, keyword string, score float32 | 101,671 | `keyword_id` is the slug; not derivable from the name in 6,997 cases |
-| `topics_legacy_keywords` | topic_id uint16, legacy_keyword string | TBD | split on `; `, see Decision 5 |
 | `subfields_display_name_alternatives` | subfield_id uint16, display_name_alternative string | 393 | |
 | `fields_display_name_alternatives` | field_id uint8, display_name_alternative string | 60 | |
 | `domains_display_name_alternatives` | domain_id uint8, display_name_alternative string | 6 | |
@@ -175,6 +177,6 @@ Old `subfield_name`, `field_name`, and `domain_name` are dropped (join on the ID
 4. **No parent names in child tables** (old tables repeated `institution_name`, `topic_name`, and so on). Recommended: drop.
 5. **`legacy_keywords`** is a `; `-joined string that does not match the new keywords (0 of 4,516). Keep as `topics_legacy_keywords`, or drop?
 6. **Small ID types** for the topic hierarchy (`uint16`, `uint8`), used the same way in every table. Recommended: yes.
-7. **`num_works`** (old name) in `topics` vs `works_count` elsewhere. Default: keep the old name.
+7. **`num_works`** (old name) in `topics` vs `num_works` elsewhere. Default: keep the old name.
 8. **`host_organization_type`**: host IDs are publishers or institutions, so the numeric ID alone is ambiguous. Recommended: add the type column (same for `sources_host_organization_lineage`).
 9. `2yr_mean_citedness` and topic scores to `float32` lose precision beyond about 7 significant digits.

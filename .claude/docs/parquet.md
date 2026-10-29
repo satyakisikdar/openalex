@@ -86,6 +86,12 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
 - Drop API URL columns (`works_api_url` and similar) and columns trivially derived from another column
   (`image_thumbnail_url` = `image_url` + `&width=300`): never stored.
 
+- **Large tables keep `publication_year`** (every works-derived table), so the most common filter needs no
+  join.
+- **`works_referenced_works`** carries `work_publication_year` and `referenced_work_publication_year`.
+- Standard count names everywhere: `num_works`, `num_citations`, `num_oa_works`.
+- Dates are `date32`; raw timestamps carry an update-job time of day, which is dropped (and counted in the log).
+
 ## Column names
 - Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
   (`flatten_openalex_files.py`, top of file), e.g. `work_id`, `institution_id`, `institution_name`.
