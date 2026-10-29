@@ -34,14 +34,17 @@ extend-exclude = ["_old", "notebooks"]
 [tool.ruff.format]
 quote-style = "single"
 # Legacy files are not yet formatted; drop each from this list when it gets cleaned up.
-exclude = ["src/*.py", "preprocessing/*.py", "refactor_SciSciNetv2.py", "main.py"]
+exclude = ["src/utils.py", "src/entities.py", "src/objects.py", "src/globals.py", "preprocessing/*.py", "refactor_SciSciNetv2.py", "main.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "PTH", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 # Legacy debt baseline (see .claude/docs/notes.md). New code must not add to it.
-"src/*.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"src/utils.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"src/entities.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"src/objects.py" = ["E", "F", "W", "I", "PTH", "UP"]
+"src/globals.py" = ["E", "F", "W", "I", "PTH", "UP"]
 "preprocessing/*.py" = ["E", "F", "W", "I", "PTH", "UP"]
 "refactor_SciSciNetv2.py" = ["E", "F", "W", "I", "PTH", "UP"]
 

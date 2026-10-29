@@ -23,6 +23,7 @@ import pyarrow as pa
 sys.path.extend(['../', './'])
 from src.utils import convert_openalex_id_to_int, load_pickle, dump_pickle, reconstruct_abstract, read_manifest, \
     parallel_async, string_to_bool, parse_authorships, convert_topic_id_to_int
+from src.parquet_io import atomic_write_parquet
 
 warnings.simplefilter(action='ignore', category=FutureWarning)  # suppress pandas future warnings
 hostname = socket.gethostname()
@@ -2335,8 +2336,8 @@ def write_to_csv_and_parquet(rows: list, kind: str, json_filename: str, debug: b
 
     write_args['compression'] = 'brotli'
 
-    df.to_parquet(parq_filename, engine='pyarrow', coerce_timestamps='ms', allow_truncated_timestamps=True,
-                  **write_args)
+    atomic_write_parquet(df, parq_filename, engine='pyarrow', coerce_timestamps='ms', allow_truncated_timestamps=True,
+                         **write_args)
     return True
 
 

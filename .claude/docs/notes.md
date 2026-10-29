@@ -1,8 +1,12 @@
 # Maintainer notes
 
 ## Known bugs in `preprocessing/flatten_openalex_files.py` (open)
-- `write_to_csv_and_parquet`: writes Parquet straight to the target and skips if the target exists. A crash
-  mid-write leaves a truncated file that later runs skip forever. Fix: `.partial-<pid>` + `Path.replace()`.
+- Works Parquet written before 2026-10-29 (pre `atomic_write_parquet`) is not validated: a file truncated by
+  an old crash still exists and is still skipped. Check with `pq.read_metadata` if in doubt.
+- Same non-atomic `to_parquet` pattern remains in `merge_all_skip_ids` (`flatten_openalex_files.py`) and in
+  `filter_dataset.py`; switch them to `src.parquet_io.atomic_write_parquet`.
+- Between a SIGKILL and the next re-run, a stale `*.parquet.partial-<pid>` sits in the output dir and breaks
+  directory-level `pd.read_parquet(<dir>)` (pyarrow only skips `.`/`_` prefixes). The re-run removes it.
 - `merge_all_skip_ids`: only writes the combined parquet when `len(merged_dfs) > 1`; a kind with exactly one
   merged-ids CSV never gets its parquet (falls back to reading CSVs every time).
 - `flatten_works_v3(threads>1)`: the 8-item positional `args` tuple doesn't match `process_work_json_v2`'s
@@ -19,6 +23,7 @@
 
 ## Other debt
 - `src/utils.py:451` uses `display` (notebook-only name); `peek_parquet` fails outside Jupyter.
+- `src/utils.py:201` `re.sub("\s+", ...)` raises `SyntaxWarning: invalid escape sequence`; use a raw string.
 - `string_to_bool` calls `eval()` on input strings.
 - `ruff` and `pandas-stubs` are in main deps; belong in the dev group.
 
