@@ -149,3 +149,14 @@ def test_write_batches_dir_writer_error_leaves_nothing(tmp_path: Path, monkeypat
             iter(batches), pa.schema([('id', pa.int64())]), tmp_path / 'x' / 't', source={}, rows_per_file=2
         )
     assert list((tmp_path / 'x').iterdir()) == []  # partial removed, no target
+
+
+def test_writers_drop_deleted_placeholder_ids(tmp_path: Path) -> None:
+    schema = pa.schema([('author_id', pa.int64()), ('institution_id', pa.int64())])
+    deleted_inst, deleted_author = o.DELETED_IDS['institution'], o.DELETED_IDS['author']
+    rows = {'author_id': [1, 2, deleted_author, 4], 'institution_id': [10, deleted_inst, 30, None]}
+    m = o.write_table_dir(pa.table(rows, schema=schema), tmp_path / 'a' / 't', source={})
+    batches = [pa.record_batch(rows, schema=schema)]
+    s = o.write_batches_dir(iter(batches), schema, tmp_path / 'b' / 't', source={})
+    assert m['rows'] == s['rows'] == 2  # deleted author and deleted institution rows gone; null kept
+    assert pq.read_table(tmp_path / 'b' / 't').column('author_id').to_pylist() == [1, 4]

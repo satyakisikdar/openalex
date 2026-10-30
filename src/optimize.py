@@ -23,6 +23,19 @@ log = logging.getLogger(__name__)
 pc: Any = _pc  # pyarrow.compute builds its functions at runtime, so type checkers can't see them
 
 DICT = pa.dictionary(pa.int32(), pa.string())
+
+# OpenAlex placeholder IDs for deleted entities (also in flatten_openalex_files.get_skip_ids). Rows that carry one
+# in an ID column of that entity are dropped from every table.
+DELETED_IDS = {'work': 4285719527, 'author': 5317838346, 'institution': 4389424196, 'source': 4317411217}
+ID_COLUMNS = {
+    'work_id': 'work',
+    'referenced_work_id': 'work',
+    'author_id': 'author',
+    'institution_id': 'institution',
+    'associated_institution_id': 'institution',
+    'ancestor_institution_id': 'institution',
+    'source_id': 'source',
+}
 DATE = pa.date32()
 NULL_LIKE = pa.array(['', 'NaN'])
 
@@ -213,6 +226,23 @@ def load_raw(root: Path, entity: str) -> pa.Table:
     return table
 
 
+def drop_deleted(table: pa.Table, label: str) -> tuple[pa.Table, int]:
+    """Drop rows whose ID columns hold a deleted-entity placeholder (see DELETED_IDS). Returns (table, dropped)."""
+    mask = None
+    for col in table.column_names:
+        if (entity := ID_COLUMNS.get(col)) is not None:
+            hit = pc.fill_null(pc.equal(table[col], DELETED_IDS[entity]), False)
+            mask = hit if mask is None else pc.or_(mask, hit)
+    if mask is None or not (n := _count(mask)):
+        return table, 0
+    return table.filter(pc.invert(mask)), n
+
+
+def _log_deleted(label: str, n: int) -> None:
+    if n:
+        log.info('%s: dropped %s rows referencing deleted-entity placeholder IDs', label, f'{n:,}')
+
+
 def _start_partial(target: Path) -> Path:
     parent = target.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -283,6 +313,8 @@ def write_table_dir(
     Built in `<target>.partial-<pid>/`, then swapped in. The old target is renamed aside before the swap and
     removed after, so it is never deleted first.
     """
+    table, n_deleted = drop_deleted(table, target.name)
+    _log_deleted(target.name, n_deleted)
     partial = _start_partial(target)
     try:
         names = []
@@ -335,13 +367,15 @@ def write_batches_dir(
 
     try:
         buf: list[pa.RecordBatch] = []
-        buf_rows = 0
+        buf_rows = n_deleted = 0
         for batch in batches:
-            if not batch.num_rows:
-                continue
             arrays = [cast(batch.column(f.name), f.type, f'{target.name}.{f.name}') for f in schema]
-            buf.append(pa.RecordBatch.from_arrays(arrays, schema=schema))
-            buf_rows += batch.num_rows
+            kept, n = drop_deleted(pa.Table.from_arrays(arrays, schema=schema), target.name)
+            n_deleted += n
+            if not kept.num_rows:
+                continue
+            buf.extend(kept.to_batches())
+            buf_rows += kept.num_rows
             while buf_rows >= rows_per_file:
                 table = pa.Table.from_batches(buf, schema=schema)
                 submit(table.slice(0, rows_per_file))
@@ -352,6 +386,7 @@ def write_batches_dir(
         for f in pending:
             f.result()
         pool.shutdown()
+        _log_deleted(target.name, n_deleted)
         return _finish(partial, target, schema, names, source)
     except BaseException:
         pool.shutdown(wait=True, cancel_futures=True)  # no writer may still be writing into partial
