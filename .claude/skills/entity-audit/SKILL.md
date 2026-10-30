@@ -14,7 +14,8 @@ On Yoda, print the schema of one file and check every file has the identical sch
 `preprocessing/flatten_openalex_files.py`, and any `may-2025/` Parquet) and list renamed, new, and gone columns.
 
 ## 2. Capped DuckDB audit
-Write the script to the scratchpad, `scp` it to `/home/ssikdar/scratch/`, run with `nohup`, log to a file:
+Write the script to the scratchpad, `scp` it to `/home/ssikdar/scratch/`, run with `ulimit -n "$(ulimit -Hn)"` and
+`nohup` (queries over the 1,898 works files fail on the 1,024 open-file default), log to a file:
 ```python
 con = duckdb.connect(config={'memory_limit': '60GB', 'threads': 16, 'temp_directory': '/home/ssikdar/scratch/duckdb-tmp'})
 con.execute("set TimeZone='UTC'")

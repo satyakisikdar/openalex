@@ -26,6 +26,8 @@
     chunks, so `sort_by` too) overflow on bigger columns, and a small slice of a big `large_string` array still
     can't be cast to `string` until copied (`pa.concat_arrays([s])`). `src/optimize.py` handles all three
     (`_array`, `take`, `_sliced`); proved on Yoda with a 2.4 GB column (`~/scratch/big_offsets.py`).
+  - DuckDB: `struct = struct` is NULL when a nested field is NULL (and `not (x or NULL)` drops the row); compare
+    structs with `is not distinct from`. A first awards count lost 270k investigator rows this way.
 
 ## Pipeline order (`__main__` in `flatten_openalex_files.py`)
 1. `flatten_merged_entries()` -> `<kind>_combined_merged_ids.parquet` (skip-ids). Must run before works.
