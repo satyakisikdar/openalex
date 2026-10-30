@@ -7,7 +7,12 @@
 - Funders audited (41,799 rows, `audit_funders.log`, `audit_funders2.log`); schema section proposed in
   `schema-oct-2026.md`. All 6 decisions approved; funder years kept up to 2030 (long-term grants).
 - Built funders in `oct-2026/` (5 tables, 940,885 rows, 6.1 MB); real write byte-identical to the dry run;
-  README now covers 47 tables. Next: audit and build `awards`, after fixing the 2 GB string-offset risk in `load_raw`.
+  README now covers 47 tables.
+- Converter is safe for columns over 2 GB (`_array`, `take`, sliced casts; proved with a 2.4 GB column on Yoda), and
+  `dedupe` keeps first occurrences in input order. Regression rebuild of the 37 in-memory tables: 34 byte-identical;
+  `funders_alternate_titles`, `institutions_display_name_acronyms`, and `institutions_lineage` have the same rows in a
+  new within-key order (live copies not yet rebuilt).
+- Awards audited (17,927,707 rows; `audit_awards*.log`); schema section proposed, coverage-verified; not built.
 
 ## 2026-10-29
 - Works schema proposal drafted (in chat, not yet in `schema-oct-2026.md`) from `audit_works.log`; two numbers

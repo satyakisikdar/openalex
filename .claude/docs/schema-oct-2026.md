@@ -333,3 +333,79 @@ of 17,480 role pairs (kept as raw).
 `funders_ids` keeps every funder, including up to 22 rows where `ror`, `wikidata`, and `crossref` are all null.
 Publisher role IDs all resolve in raw `publishers` (0 of 2,764 orphans), but there is no `oct-2026/publishers` table yet;
 it needs building for that join.
+
+---
+
+# Awards (proposed 2026-10-30)
+
+New entity (the old flattener had no awards table). Raw: 17,927,707 awards in 230 files (5.1 GB; descriptions
+alone are 4.6 GB), identical schema in every file, IDs unique (`G42` to `G9001171187`). Audit logs:
+`yoda:/home/ssikdar/scratch/audit_awards.log` (the 4 works queries in it failed on the open-file limit and were
+rerun in `audit_awards2.log`), `audit_awards3.log` to `audit_awards6.log`.
+
+## `awards` (17,927,707 rows; new table)
+| Column | Type | Raw source | Observed | Note |
+|---|---|---|---|---|
+| award_id | int64 | id | 42 to 9,001,171,187 | |
+| award_name | string | display_name | 9,405,162 null after cleanup (9,405,112 raw nulls, mostly `crossref_work_funders` and `europepmc_work_funders` stubs, plus 50 empty strings); max 9,294 chars | |
+| description | string | description | 5,261,112 non-null after cleanup (5,624 empty strings stored null); max 106,824 chars; equals the name in 485,231 | |
+| funder_award_id | string | funder_award_id | 17,907,301 non-null, max 1,013 chars | the funder's own grant number |
+| funder_id | int64 | funder.id | 15,554 null; the other 17,912,153 all resolve to `oct-2026/funders` | |
+| unlinked_funder_name | string | funder.display_name | only where `funder_id` is null: 14,660 (Canada Foundation for Innovation 14,636, DataCite 19, 5 others); 894 have no funder at all | Decision 2 |
+| amount | float64 | amount | 6,861,945 non-null; -103,200,000 to 373,109,113,199; 13,868 negative, 174,615 with more than 2 decimals | in `currency` |
+| currency | dict | currency | 32 values; 1,249,324 with no amount, 11,716 amounts with no currency | ISO 4217 codes |
+| funding_type | dict | funding_type | 72 values, 9,406,945 null | |
+| funder_scheme | dict | funder_scheme | 30,064 values, 9,817,524 null | e.g. `R01` |
+| provenance | dict | provenance | 426 values, never null | source of the record, e.g. `nih_exporter` |
+| start_date | date32 | start_date | 7,537,950 non-null, 1731-01-01 to 2209-06-01 | |
+| end_date | date32 | end_date | 6,942,147 non-null; 4,476 outside 1500 to 2100: 3923-04-14 x2,200, 4050-04-14 x1,615, 2101 to 2209 (644), 5397-03-31 x11, 2999-12-31 x2, 9999 x2, and 0224/0226 (1 each) | Decision 4 |
+| start_year | uint16 | start_year | 7,865,995 non-null, 1731 to 2027 | not derivable: 367,550 have a year but no date, 21,280 differ from the date's year (NEH 18,591; Nobel prizes give the prize year, the date is the ceremony) |
+| end_year | uint16 | end_year | 7,136,368 non-null, 224 to 9999 | 207,584 year only, 214,654 differ from the date's year |
+| primary_topic_id | uint16 | primary_topic.id | 1,193,153 non-null, all in `oct-2026/topics` | |
+| primary_topic_score | float32 | primary_topic.score | 0.5 to 0.9999 | |
+| parent_award_id | int64 | parent_awards[].id | 280,315 non-null (at most 1 parent per award), all resolve | |
+| parent_relationship | dict | parent_awards[].relationship | `component` 280,312, `sub_award` 3 | |
+| parent_asserted_by | dict | parent_awards[].asserted_by | `funder` 280,312, `curated` 3 | |
+| landing_page_url | string | landing_page_url | 8,210,176 non-null; 732 without `http(s)://` | |
+| doi | string | doi | 259,241 non-null after cleanup | `https://doi.org/` (116,590) and `http://dx.doi.org/` (46,519) stripped; 21,567 empty stored null; 13,579 mixed case kept |
+| num_funded_outputs | uint32 | funded_outputs_count | 0 to 461,383; 9,807,648 awards non-zero | OpenAlex's count, includes xpac works (like funders) |
+| updated_date | date32 | updated_date | all have a time of day (dropped) | |
+| created_date | date32 | created_date | 17,927,706 have a time of day (dropped) | |
+
+## Child tables
+| Table | Columns (type) | Rows | Note |
+|---|---|---|---|
+| `awards_investigators` | award_id int64, role dict, given_name string, family_name string, orcid string, role_start date32, affiliation_name string, affiliation_country string, affiliation_id_type dict, affiliation_id string, affiliation_id_asserted_by dict | 7,825,071 (7,306,449 awards) | lead 7,291,006 + co_lead 112,112 + investigator 421,953. 238,996 list entries removed: copies of the award's lead or co-lead, and exact repeats within the list (51,441 raw). 1,098,632 rows have no name or ORCID (1,096,596 of them have an affiliation); kept. `affiliation_id_asserted_by`: 10 values (`kaken` 707,489, `publisher` 73,062, `fct` 31,481, ...), not derivable from the type. ORCID: Decision 3. Country is raw text (2,670 forms: `CANADA`, `CA`, `United States`). At most 1 affiliation ID (886,062): `nrid` (Japan) 707,489, ROR 158,449 (44 of all raw ROR values are malformed, e.g. a domain name), `rnsr` (France) 17,146, 360Giving 2,928 (2 type spellings), CNPJ 50; type lowercased, value kept raw. `role_start`: 591,987 non-null, 1899-12-30 to 2027-09-01 (1899-12-30, a spreadsheet zero date, occurs once; kept) |
+| `awards_institutions` | award_id int64, institution_id int64 | 5,899,561 | `institution_awarded`; every element matches `oct-2026/institutions` in name, ROR, country, type, and lineage |
+
+The award-work link is `works.awards` and will be built with works as `works_awards` (56,114,642 non-xpac pairs, 9,770,170 awards, all resolve here).
+
+## Dropped, with proof
+| Raw column(s) | Why |
+|---|---|
+| `works_api_url` | equals `https://api.openalex.org/works?filter=awards.id:` + the ID in every row |
+| `funder.display_name`, `funder.ror_id`, `funder.doi` (linked funders) | match `oct-2026/funders` and `funders_ids` in all 17,912,153 rows |
+| `topics`, `topics_full`, `primary_topic_full` | `topics` is always `[primary_topic]` (at most 1); the `_full` copies are identical in every row |
+| topic name, subfield, field, and domain (IDs and names) | match `oct-2026/topics`, `subfields`, `fields`, and `domains` in all 1,193,153 |
+| `institution_awarded_full`; institution name, ROR, country, type, lineage | `_full` identical in every row; details match `oct-2026/institutions` and `institutions_lineage` in all 5,899,561 elements |
+| `sub_awards`, `sub_awards_full`, `sub_awards_count` | `sub_awards_full` is the exact inverse of `parent_awards` (280,315 pairs, 0 differences), and each element's name, funder ID and name, relationship, and `asserted_by` match the child award and its parent entry in all 280,315; `sub_awards` is a prefix of it capped at 100 (301 awards); the count is its length in every row |
+| `parent_awards_full`; parent name, funder ID, and funder name | `_full` identical; all three match the parent award in all 280,315 |
+| `funded_outputs` | capped at 100 (38,703 awards); `works.awards` holds every non-xpac pair it has except 61, plus 9,412,077 more; of its 641,536 pairs not in `works.awards`, 641,475 point to xpac or missing works |
+
+## Decisions for the user
+1. **Build with capped DuckDB** (like authors), not the in-memory pyarrow path: 17.9M nested rows with 4.6 GB
+   of descriptions. Recommended.
+2. **Unlinked funder names:** 14,660 awards name a funder that has no OpenAlex ID (mostly the Canada Foundation
+   for Innovation). Recommended: keep the name in `unlinked_funder_name` (null whenever `funder_id` is set), so
+   these awards still say who funded them.
+3. **ORCID cleanup** in `awards_investigators` (159,747 non-null): URL, `http://`, and bare forms all become the
+   bare form with an uppercase `X` (152,939 valid); the 6,808 invalid values (5,000 empty strings, and values
+   like `r000-0000-1569-5731` or two ORCIDs joined with `/`) stored as null and logged. Recommended.
+4. **Odd dates:** keep `start_date`, `end_date`, and the years as the funder reported them (4,476 end dates
+   outside 1500 to 2100, end years up to 9999), or null out values outside 1500 to 2100? Recommended: keep
+   (they are the source's own values, not counts we aggregate).
+5. **Duplicate awards:** 65,734 (funder, `funder_award_id`) pairs appear as 2 or 3 awards (132,171 rows),
+   mostly the same UKRI grant from `gateway_to_research` and `gtr_legacy` (64,446). Works link to either ID.
+   Recommended: keep all (they are distinct OpenAlex IDs); note it in the README.
+6. **Empty strings to null** (names, descriptions, DOIs, investigator fields: 5,206 given names, 5,000 ORCIDs,
+   360,121 affiliation countries, ...). Recommended, as everywhere else.
