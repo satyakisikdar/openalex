@@ -180,3 +180,63 @@ Old `subfield_name`, `field_name`, and `domain_name` are dropped (join on the ID
 7. **`num_works`** (old name) in `topics` vs `num_works` elsewhere. Default: keep the old name.
 8. **`host_organization_type`**: host IDs are publishers or institutions, so the numeric ID alone is ambiguous. Recommended: add the type column (same for `sources_host_organization_lineage`).
 9. `2yr_mean_citedness` and topic scores to `float32` lose precision beyond about 7 significant digits.
+
+---
+
+# Authors (proposed 2026-10-29, awaiting user approval; nothing written)
+
+Raw: 101,066,311 authors in 517 files (50.7 GB), identical schema in every file, IDs unique. Audit logs:
+`yoda:/home/ssikdar/scratch/audit_authors.log` and `audit_authors2.log`.
+
+## `authors` (101,066,311 rows; old table)
+| Column | Type | Raw source | Observed | Note |
+|---|---|---|---|---|
+| author_id | int64 | id | max 5,158,535,892 | |
+| author_name | string | display_name | max 11,542 chars (junk exists) | old name kept |
+| full_name | string | full_name | 82,777 null; differs from display_name in 12.9M | new |
+| orcid | string | orcid | 10,945,952 non-null | prefix stripped; 53 lowercase `x` check digits uppercased, 1 truncated value stored null |
+| num_works | uint32 | works_count | 0 to 2,943,909 | |
+| num_citations | uint32 | cited_by_count | 0 to 1,091,534 | |
+| 2yr_mean_citedness | float32 | summary_stats | 0 to 45,798 | new |
+| h_index | uint16 | summary_stats | 0 to 324 | new |
+| i10_index | uint16 | summary_stats | 0 to 3,162 | new |
+| updated_date | date32 | updated_date | all have a time of day (dropped) | |
+| created_date | date32 | created_date | 4,485,352 null | new |
+
+## Child tables
+| Table | Columns (type) | Rows | Note |
+|---|---|---|---|
+| `authors_display_name_alternatives` | author_id int64, display_name_alternative string | 181,538,751 | |
+| `authors_observed_orcids` | author_id int64, orcid string | 11,213,951 | always includes the main `orcid`; same ORCID cleanup |
+| `authors_affiliations` | author_id int64, institution_id int64, year uint16 | 262,933,039 | one row per author, institution, and year; 5,330 years outside 1500 to 2027 dropped |
+| `authors_last_known_institutions` | author_id int64, institution_id int64 | 52,798,942 | always a subset of affiliations |
+| `authors_topics` | author_id int64, topic_id uint16, num_works uint32 | 371,827,067 | at most 5 per author |
+| `authors_topic_share` | author_id int64, topic_id uint16, value float32 | 371,827,067 | topic sets differ from `authors_topics` for 35% of authors |
+| `authors_concepts` (old) | author_id int64, concept_id int64, score float32, num_works uint32 | 422,710,260 | at most 5 per author; needs a `concepts` table for names and levels |
+| `authors_sources` | author_id int64, source_id int64 | 498,485,945 | 1,529,935 repeated source IDs per author removed (same ID, stale copies) |
+| `authors_counts_by_year` (old) | author_id int64, year uint16, num_works uint32, num_oa_works uint32, num_citations uint32 | 301,690,683 | 100,888 entries outside 1500 to 2027 dropped |
+
+## Dropped, with proof
+| Raw column(s) | Why |
+|---|---|
+| `works_api_url` | user decision |
+| `raw_author_names` | same set as `display_name_alternatives` in all 101,066,311 rows |
+| `ids.openalex`, `ids.orcid`, `ids.observed_orcids` | equal `id`, `orcid`, and `observed_orcids` in every row |
+| institution details in `affiliations` and `last_known_institutions` (ror, name, country, type, lineage) | match `oct-2026/institutions` and `institutions_lineage` in every element |
+| topic hierarchy inside `topics` / `topic_share` | matches `oct-2026/topics` in every element |
+| source details inside `sources` | joinable from `oct-2026/sources`; the nested copies differ from it in 15.9M of 500M elements (stale) |
+| concept `display_name`, `level`, `wikidata` | constant per concept ID (63,032 IDs, 63,032 variants); belongs in a `concepts` table |
+| old `authors_ids` table | its scopus, twitter, wikipedia, and mag IDs are gone from the raw data; orcid moved to `authors` |
+| old `authors_hints` table | `most_cited_work` is gone from the raw data |
+
+## Decisions for the user
+1. Drop `raw_author_names` (identical to `display_name_alternatives`). Recommended.
+2. Orphan institution IDs: 8,078 affiliation pairs and 5,546 last-known entries point to institutions absent
+   from the institutions snapshot. Recommended: keep them (they're real IDs; joins just miss).
+3. ORCID cleanup: uppercase a lowercase `x` check digit (53 values), null the 1 truncated value. Recommended.
+4. Build a `concepts` table (65,026 raw rows, levels 0 to 5) with authors so `authors_concepts` joins. Recommended.
+5. **Implementation:** the current converter loads a whole entity into memory. Authors (50.7 GB nested
+   Parquet, about 2.1 billion child rows) won't fit on Yoda (246 GB RAM, shared). Recommended: build authors
+   (and later works) with capped DuckDB `COPY ... ORDER BY ... TO` queries, which spill to disk. This makes
+   DuckDB a runtime dependency. Alternative: stream raw files through pyarrow, sorted within each file
+   but not globally by `author_id` (slower range filters).
