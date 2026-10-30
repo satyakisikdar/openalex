@@ -68,7 +68,9 @@ def _array(arr: Col) -> pa.Array:
 
 def _sliced(arr: pa.Array, fn: Any, type_: pa.DataType) -> pa.ChunkedArray:
     """Apply `fn` to CAST_CHUNK-row slices, so each output chunk fits 32-bit offsets."""
-    chunks = [fn(arr.slice(i, CAST_CHUNK)) for i in range(0, len(arr), CAST_CHUNK)]
+    # concat_arrays copies the slice so its offsets start at 0: a slice of a big large_string array keeps offsets
+    # past 2**31, and casting it to string fails ("input array too large") even when the slice itself is small.
+    chunks = [fn(pa.concat_arrays([arr.slice(i, CAST_CHUNK)])) for i in range(0, len(arr), CAST_CHUNK)]
     return pa.chunked_array(chunks or [fn(arr)], type=type_)
 
 
@@ -218,6 +220,19 @@ def drop_rows(table: pa.Table, drop: Col, label: str, why: str) -> pa.Table:
     return table.filter(pc.invert(drop))
 
 
+def take(table: pa.Table, indices: Col) -> pa.Table:
+    """`table.take(indices)` without overflow: pyarrow's take concatenates chunks, so a string or list column over
+    2 GB is reordered as its large type and cast back in CAST_CHUNK slices."""
+    cols = []
+    for f, col in zip(table.schema, table.columns, strict=True):
+        large = _large(f.type)
+        if large == f.type:
+            cols.append(col.take(indices))
+        else:
+            cols.append(_sliced(_array(col.cast(large).take(indices)), lambda a, t=f.type: a.cast(t), f.type))
+    return pa.Table.from_arrays(cols, schema=table.schema)
+
+
 def dedupe(table: pa.Table, label: str) -> pa.Table:
     """Drop rows that repeat another row in every column (raw lists sometimes repeat an element; logged)."""
     # Keep each row's first occurrence in input order: group_by output order depends on chunk layout.
@@ -226,7 +241,7 @@ def dedupe(table: pa.Table, label: str) -> pa.Table:
     if n := table.num_rows - first.num_rows:
         log.info('%s: dropped %s exact duplicate rows', label, f'{n:,}')
         keep = first['_i_min']
-        return table.take(pc.take(keep, pc.sort_indices(keep)))
+        return take(table, pc.take(keep, pc.sort_indices(keep)))
     return table
 
 
@@ -237,7 +252,7 @@ def conform(columns: dict[str, Col], schema: pa.Schema, label: str, sort_keys: l
         raise SystemExit(f'{label}: columns differ from schema; missing {sorted(missing)}, extra {sorted(extra)}')
     arrays = [cast(columns[f.name], f.type, f'{label}.{f.name}') for f in schema]
     table = dedupe(pa.Table.from_arrays(arrays, schema=schema), label)
-    return table.sort_by([(k, 'ascending') for k in sort_keys])
+    return take(table, pc.sort_indices(table, sort_keys=[(k, 'ascending') for k in sort_keys]))
 
 
 def assert_unique(arr: Col, label: str) -> None:
