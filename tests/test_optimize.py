@@ -175,3 +175,13 @@ def test_chunked_strings_and_lists_never_combine_into_32bit_offsets(monkeypatch:
     t = o.explode(pa.table({'id': [1, 2, 3], 'l': lists}), ['id'], 'l')
     assert t.column('id').to_pylist() == [1, 3, 3] and t.column('k').to_pylist() == ['x', 'y', 'z']
     assert o.cast(pa.chunked_array([[]], pa.string()), pa.string(), 'x').to_pylist() == []
+
+
+def test_dedupe_keeps_first_occurrences_in_input_order_whatever_the_chunking() -> None:
+    rows = {'k': [1, 1, 1, 1, 2], 'v': ['b', 'a', 'b', 'c', 'a']}
+    want = {'k': [1, 1, 1, 2], 'v': ['b', 'a', 'c', 'a']}
+    assert o.dedupe(pa.table(rows), 'x').to_pydict() == want
+    chunked = pa.table(
+        {'k': pa.chunked_array([[1, 1], [1, 1, 2]]), 'v': pa.chunked_array([['b'], ['a', 'b', 'c', 'a']])}
+    )
+    assert o.dedupe(chunked, 'x').to_pydict() == want

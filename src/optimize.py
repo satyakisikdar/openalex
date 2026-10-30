@@ -220,10 +220,13 @@ def drop_rows(table: pa.Table, drop: Col, label: str, why: str) -> pa.Table:
 
 def dedupe(table: pa.Table, label: str) -> pa.Table:
     """Drop rows that repeat another row in every column (raw lists sometimes repeat an element; logged)."""
-    unique = table.group_by(table.column_names, use_threads=False).aggregate([])
-    if n := table.num_rows - unique.num_rows:
+    # Keep each row's first occurrence in input order: group_by output order depends on chunk layout.
+    first = table.append_column('_i', pa.array(range(table.num_rows), pa.int64()))
+    first = first.group_by(table.column_names, use_threads=False).aggregate([('_i', 'min')])
+    if n := table.num_rows - first.num_rows:
         log.info('%s: dropped %s exact duplicate rows', label, f'{n:,}')
-        return unique.select(table.column_names)
+        keep = first['_i_min']
+        return table.take(pc.take(keep, pc.sort_indices(keep)))
     return table
 
 
