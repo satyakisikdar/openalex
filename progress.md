@@ -1,6 +1,10 @@
 # Progress
 
 ## 2026-10-29
+- Works audit finished (31 queries + follow-up): xpac works are 137.8M of 464.8M (skipped); lineage expansion
+  would grow authorships 647M -> 1.0B rows (1.55x) and is fully derivable (0 lineage differences), so it is
+  dropped. Schema proposal not yet written. Added project hooks (ruff format, Yoda status at session start),
+  skills (`yoda-run`, `entity-audit`, project `wrap-session`), and the `schema-coverage-verifier` agent.
 - Works: raw schema checked (1,898 files, identical; differs from may-2025: `type_crossref` and grants gone,
   `awards`/`funders`/`study_designs`/`has_content` new, `ids` is a map, abstracts are a JSON string). Decided:
   keep skipping `is_xpac` works, no lineage expansion in `works_authorships`, `<entity>_id` names, `has_*` bool.
