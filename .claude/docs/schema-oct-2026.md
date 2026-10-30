@@ -183,7 +183,11 @@ Old `subfield_name`, `field_name`, and `domain_name` are dropped (join on the ID
 
 ---
 
-# Authors (proposed 2026-10-29, awaiting user approval; nothing written)
+# Authors (approved and built 2026-10-29)
+
+Decisions 1 to 5 taken as recommended: `raw_author_names` dropped, orphan institution IDs kept, ORCIDs
+uppercased (53 + 69) or nulled (1 truncated), a `concepts` table built, and DuckDB used for the build. Row counts
+below are before dropping rows that reference the deleted-institution placeholder (14 affiliations, 1 last-known).
 
 Raw: 101,066,311 authors in 517 files (50.7 GB), identical schema in every file, IDs unique. Audit logs:
 `yoda:/home/ssikdar/scratch/audit_authors.log` and `audit_authors2.log`.
@@ -240,3 +244,15 @@ Raw: 101,066,311 authors in 517 files (50.7 GB), identical schema in every file,
    (and later works) with capped DuckDB `COPY ... ORDER BY ... TO` queries, which spill to disk. This makes
    DuckDB a runtime dependency. Alternative: stream raw files through pyarrow, sorted within each file
    but not globally by `author_id` (slower range filters).
+
+# Concepts (built 2026-10-29)
+
+`concepts` (65,026 rows): concept_id int64, concept_name string, level uint8, description string, wikidata uint32,
+wikipedia string (`lang:Title`, folded in from the old `concepts_ids`), image_url string, num_works uint32,
+num_citations uint32, updated_date date32, created_date date32. New relative to the old table: `image_url`,
+`created_date`, and `wikipedia`.
+
+Not buildable from this snapshot: every list and nested field in raw concepts is null for all rows
+(`ancestors`, `related_concepts`, `counts_by_year`, `international`, UMLS IDs, `mag`, `summary_stats`), so the
+old `concepts_ancestors`, `concepts_related_concepts`, `concepts_counts_by_year`, and `concepts_ids` tables have
+no data. Dropped: `works_api_url`, `image_thumbnail_url`, `ids.openalex`, `ids.wikidata` (equals `wikidata`).

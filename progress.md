@@ -1,6 +1,11 @@
 # Progress
 
 ## 2026-10-29
+- Built authors (10 tables, 2.58B rows) and concepts in `oct-2026/` with capped DuckDB (`ORDER BY ALL`, UTC dates)
+  streaming into a pool of 8 parallel brotli writers; about 7 minutes. Real write matches the dry run by row
+  count and per-row hash in every table. Rows referencing deleted-entity placeholder IDs are now dropped
+  everywhere (the deleted institution I4389424196 was a real raw row); small tables rebuilt, byte-identical
+  to their dry run. `oct-2026/README.md` is generated and covers all 42 tables (2.6B rows, 12 GB).
 - Raw Parquet snapshot download complete: 3,108 of 3,108 files match `manifest.json` (800.9 GB).
 - Built the first optimized tables in `parquet-files/oct-2026/`: 31 tables (institutions, sources, topic
   hierarchy), 23.8M rows, 101 MB; dry run and real run byte-identical. Converter fixes found on real data:

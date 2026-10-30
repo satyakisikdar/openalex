@@ -23,8 +23,10 @@
 ## Optimized Parquet converter
 - `uv run python -m preprocessing.optimize_parquet --dry-run <scratch>` writes under `<scratch>/oct-2026/`;
   without `--dry-run` it writes to `parquet-files/oct-2026/`. `--entities institutions sources topics`.
-- Each table is checked with pyarrow, pandas, and DuckDB after writing (DuckDB is a dev dependency, so run
-  `uv sync` on Yoda first).
+- Each table is checked with pyarrow, pandas, and DuckDB after writing, from file metadata plus the first file
+  (no full load). `--readme-only` regenerates `README.md` from the manifests.
+- Authors (and later works) run through DuckDB, a runtime dependency: `DUCKDB_CONFIG` in the converter caps it at
+  60 GB and 16 threads and spills to `/home/ssikdar/scratch/duckdb-tmp`. Check `free -g` first; Yoda is shared.
 
 ## Safety and idempotency (new and touched code)
 - Every script logs START and END markers (with timestamps), progress per stage/loop, and handles SIGTERM

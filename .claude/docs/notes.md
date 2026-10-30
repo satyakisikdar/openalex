@@ -62,7 +62,6 @@ Top-level columns are identical across every file of each table. "New" = no old 
   brotli); code synced and `uv sync` run on Yoda 2026-10-29 (3.12.11 venv kept).
 
 ## Other debt
-- `src/utils.py:451` uses `display` (notebook-only name); `peek_parquet` fails outside Jupyter.
 - `string_to_bool` calls `eval()` on input strings.
 - `ruff` and `pandas-stubs` are in main deps; belong in the dev group.
 
