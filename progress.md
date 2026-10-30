@@ -12,7 +12,10 @@
   `dedupe` keeps first occurrences in input order. Regression rebuild of the 37 in-memory tables: 34 byte-identical;
   `funders_alternate_titles`, `institutions_display_name_acronyms`, and `institutions_lineage` have the same rows in a
   new within-key order (live copies not yet rebuilt).
-- Awards audited (17,927,707 rows; `audit_awards*.log`); schema section proposed, coverage-verified; not built.
+- Rebuilt the 3 reordered tables live (institutions and funders rerun; all 51 files match the dry run).
+- Awards audited and built in `oct-2026/` (DuckDB path): `awards` 17,927,707, `awards_investigators` 7,825,071,
+  `awards_institutions` 5,899,561 rows, 2.5 GB, about 2 minutes; byte-identical to the dry run. `oct-2026/` now has
+  50 tables (14 GB). Next: works (`works_awards` links to awards), abstracts last.
 
 ## 2026-10-29
 - Works schema proposal drafted (in chat, not yet in `schema-oct-2026.md`) from `audit_works.log`; two numbers

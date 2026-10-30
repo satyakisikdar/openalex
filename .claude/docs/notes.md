@@ -83,6 +83,14 @@ Top-level columns are identical across every file of each table. "New" = no old 
 - `role_id` (here and in `institutions_roles`) is not in `ID_COLUMNS`, so `drop_deleted` would not catch a
   deleted placeholder there; no placeholder occurs in this snapshot.
 
+## Benchmarks: awards (oct-2026, built 2026-10-30)
+- DuckDB streaming path (60 GB cap, 16 threads): 3 tables, 31,652,339 rows, 2.5 GB (`awards` 2.3 GB in 4 files,
+  mostly descriptions), about 2 minutes. Real write byte-identical to the dry run (14 files, md5).
+- The build log's "1,808 invalid ORCIDs stored as null" excludes the 5,000 empty strings (`nullif` handles
+  those first); together they are the spec's 6,808.
+- `primary_topic_id` comes from `topics[1].id` and `primary_topic_score` from `primary_topic.score`; the build
+  fails if the two structs ever differ.
+
 ## Deleted and merged IDs (snapshot 2026-10-14)
 - Placeholder IDs for deleted entities (`src.optimize.DELETED_IDS`): work 4285719527, author 5317838346,
   institution 4389424196, source 4317411217. Only the institution one occurs: it is a real row in raw

@@ -336,9 +336,9 @@ it needs building for that join.
 
 ---
 
-# Awards (approved 2026-10-30)
+# Awards (approved and built 2026-10-30)
 
-All 6 decisions approved as recommended.
+All 6 decisions approved as recommended. Built: 3 tables, 31,652,339 rows, 2.5 GB; real write byte-identical to the dry run.
 
 New entity (the old flattener had no awards table). Raw: 17,927,707 awards in 230 files (5.1 GB; descriptions
 alone are 4.6 GB), identical schema in every file, IDs unique (`G42` to `G9001171187`). Audit logs:
@@ -357,7 +357,7 @@ rerun in `audit_awards2.log`), `audit_awards3.log` to `audit_awards6.log`.
 | amount | float64 | amount | 6,861,945 non-null; -103,200,000 to 373,109,113,199; 13,868 negative, 174,615 with more than 2 decimals | in `currency` |
 | currency | dict | currency | 32 values; 1,249,324 with no amount, 11,716 amounts with no currency | ISO 4217 codes |
 | funding_type | dict | funding_type | 72 values, 9,406,945 null | |
-| funder_scheme | dict | funder_scheme | 30,064 values, 9,817,524 null | e.g. `R01` |
+| funder_scheme | dict | funder_scheme | 30,063 values after cleanup (2,459 empty strings stored null), 9,817,524 raw nulls | e.g. `R01` |
 | provenance | dict | provenance | 426 values, never null | source of the record, e.g. `nih_exporter` |
 | start_date | date32 | start_date | 7,537,950 non-null, 1731-01-01 to 2209-06-01 | |
 | end_date | date32 | end_date | 6,942,147 non-null; 4,476 outside 1500 to 2100: 3923-04-14 x2,200, 4050-04-14 x1,615, 2101 to 2209 (644), 5397-03-31 x11, 2999-12-31 x2, 9999 x2, and 0224/0226 (1 each) | Decision 4 |
@@ -368,7 +368,7 @@ rerun in `audit_awards2.log`), `audit_awards3.log` to `audit_awards6.log`.
 | parent_award_id | int64 | parent_awards[].id | 280,315 non-null (at most 1 parent per award), all resolve | |
 | parent_relationship | dict | parent_awards[].relationship | `component` 280,312, `sub_award` 3 | |
 | parent_asserted_by | dict | parent_awards[].asserted_by | `funder` 280,312, `curated` 3 | |
-| landing_page_url | string | landing_page_url | 8,210,176 non-null; 732 without `http(s)://` | |
+| landing_page_url | string | landing_page_url | 8,210,148 non-null after cleanup (28 empty strings stored null); 732 without `http(s)://` | |
 | doi | string | doi | 259,241 non-null after cleanup | `https://doi.org/` (116,590) and `http://dx.doi.org/` (46,519) stripped; 21,567 empty stored null; 13,579 mixed case kept |
 | num_funded_outputs | uint32 | funded_outputs_count | 0 to 461,383; 9,807,648 awards non-zero | OpenAlex's count, includes xpac works (like funders) |
 | updated_date | date32 | updated_date | all have a time of day (dropped) | |
