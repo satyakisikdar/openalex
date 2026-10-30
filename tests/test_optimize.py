@@ -160,3 +160,18 @@ def test_writers_drop_deleted_placeholder_ids(tmp_path: Path) -> None:
     s = o.write_batches_dir(iter(batches), schema, tmp_path / 'b' / 't', source={})
     assert m['rows'] == s['rows'] == 2  # deleted author and deleted institution rows gone; null kept
     assert pq.read_table(tmp_path / 'b' / 't').column('author_id').to_pylist() == [1, 4]
+
+
+def test_chunked_strings_and_lists_never_combine_into_32bit_offsets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Columns over 2 GB overflow 32-bit offsets when combined: combine as large types, cast back in slices."""
+    monkeypatch.setattr(o, 'CAST_CHUNK', 2)
+    s = pa.chunked_array([['a', 'b'], ['c', None, 'e']])
+    assert o._array(s).type == pa.large_string()
+    out = o.cast(s, pa.string(), 'x')
+    assert out.type == pa.string() and out.num_chunks == 3 and out.to_pylist() == ['a', 'b', 'c', None, 'e']
+    d = o.cast(s, o.DICT, 'x')
+    assert d.type == o.DICT and d.to_pylist() == ['a', 'b', 'c', None, 'e']
+    lists = pa.chunked_array([[[{'k': 'x'}]], [[], [{'k': 'y'}, {'k': 'z'}]]])
+    t = o.explode(pa.table({'id': [1, 2, 3], 'l': lists}), ['id'], 'l')
+    assert t.column('id').to_pylist() == [1, 3, 3] and t.column('k').to_pylist() == ['x', 'y', 'z']
+    assert o.cast(pa.chunked_array([[]], pa.string()), pa.string(), 'x').to_pylist() == []

@@ -42,8 +42,34 @@ NULL_LIKE = pa.array(['', 'NaN'])
 type Col = pa.Array | pa.ChunkedArray
 
 
+CAST_CHUNK = 1_000_000  # rows per output chunk; ponytail: a 1M-row slice over 2 GB (avg > 2 KB/value) still overflows
+
+
+def _large(t: pa.DataType) -> pa.DataType:
+    """The same type with 64-bit offsets everywhere (string, binary, and list, nested in lists and structs)."""
+    if pa.types.is_string(t):
+        return pa.large_string()
+    if pa.types.is_binary(t):
+        return pa.large_binary()
+    if pa.types.is_list(t) or pa.types.is_large_list(t):
+        return pa.large_list(t.value_field.with_type(_large(t.value_type)))
+    if pa.types.is_struct(t):
+        return pa.struct([f.with_type(_large(f.type)) for f in t])
+    return t  # maps are left as is: pc.list_parent_indices can't take them anyway (see data.md)
+
+
 def _array(arr: Col) -> pa.Array:
-    return arr.combine_chunks() if isinstance(arr, pa.ChunkedArray) else arr
+    """One contiguous array. Combined as large types: a column over 2 GB overflows 32-bit offsets."""
+    if not isinstance(arr, pa.ChunkedArray):
+        return arr
+    large = _large(arr.type)
+    return (arr.cast(large) if large != arr.type else arr).combine_chunks()
+
+
+def _sliced(arr: pa.Array, fn: Any, type_: pa.DataType) -> pa.ChunkedArray:
+    """Apply `fn` to CAST_CHUNK-row slices, so each output chunk fits 32-bit offsets."""
+    chunks = [fn(arr.slice(i, CAST_CHUNK)) for i in range(0, len(arr), CAST_CHUNK)]
+    return pa.chunked_array(chunks or [fn(arr)], type=type_)
 
 
 def _count(mask: Col) -> int:
@@ -141,7 +167,8 @@ def wikipedia(arr: Col, label: str) -> pa.Array:
     _log_normalized(arr, r'^https://[a-z][a-z0-9-]*\.wikipedia\.org/wiki/', label)
     q, t = pc.struct_field(parts, 'q'), pc.struct_field(parts, 't')
     title = pc.if_else(pc.equal(q, ''), t, q)
-    return pc.binary_join_element_wise(pc.struct_field(parts, 'lang'), title, ':')
+    lang = pc.struct_field(parts, 'lang')
+    return pc.binary_join_element_wise(lang, title, pa.scalar(':', lang.type))  # large_string after _array
 
 
 def _log_normalized(arr: pa.Array, canonical: str, label: str) -> None:
@@ -150,18 +177,18 @@ def _log_normalized(arr: pa.Array, canonical: str, label: str) -> None:
         log.info('%s: %s values normalized to the canonical form', label, f'{n:,}')
 
 
-def cast(arr: Col, type_: pa.DataType, label: str) -> pa.Array:
+def cast(arr: Col, type_: pa.DataType, label: str) -> pa.ChunkedArray:
     """Checked cast: overflow, bad parses, and float overflow to inf all fail loudly."""
     arr = _array(arr)
     if pa.types.is_dictionary(type_):
-        return pc.dictionary_encode(arr.cast(pa.string()))
+        return _sliced(arr, lambda a: pc.dictionary_encode(a.cast(pa.string())), type_)
     if pa.types.is_date(type_) and pa.types.is_timestamp(arr.type):
         day = pc.floor_temporal(arr, unit='day')  # spec stores dates; the time of day is dropped on purpose
         if n := _count(pc.not_equal(day, arr)):
             log.info('%s: %s values had a time of day, dropped (date only)', label, f'{n:,}')
         arr = day
     try:
-        out = arr.cast(type_, safe=True)
+        out = _sliced(arr, lambda a: a.cast(type_, safe=True), type_)
     except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as e:
         raise SystemExit(f'{label}: cannot cast {arr.type} to {type_}: {e}') from e
     if pa.types.is_floating(type_) and pa.types.is_floating(arr.type):
@@ -221,7 +248,7 @@ def load_raw(root: Path, entity: str) -> pa.Table:
     files = sorted((root / entity).rglob('*.parquet'))
     if not files:
         raise SystemExit(f'No raw Parquet files for {entity!r} under {root}; check the download.')
-    table = pa.concat_tables(pq.ParquetFile(f).read() for f in files).combine_chunks()
+    table = pa.concat_tables(pq.ParquetFile(f).read() for f in files)  # chunked: combining can overflow (_array)
     log.info('read %s: %s rows from %s files', entity, f'{table.num_rows:,}', len(files))
     return table
 
