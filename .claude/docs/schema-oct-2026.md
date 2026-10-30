@@ -1,6 +1,6 @@
 # Optimized schema, oct-2026: institutions, sources, and topic hierarchy
 
-**Status: approved 2026-10-29** (Decisions 1 to 4, 6, 8, and 9 as recommended; `legacy_keywords` dropped).
+**Status: approved and built 2026-10-29** (31 tables, 23,789,643 rows, 101 MB in `oct-2026/`) (Decisions 1 to 4, 6, 8, and 9 as recommended; `legacy_keywords` dropped).
 The code is the source of truth: `SCHEMAS` in `preprocessing/optimize_parquet.py`. Column names below use the
 standardized names: `num_works` -> `num_works`, `num_citations` -> `num_citations`, `num_oa_works` ->
 `num_oa_works`, and per-topic `count` -> `num_works`. Every date column is `date32` (time of day dropped).

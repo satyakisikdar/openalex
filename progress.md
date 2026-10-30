@@ -1,6 +1,11 @@
 # Progress
 
 ## 2026-10-29
+- Raw Parquet snapshot download complete: 3,108 of 3,108 files match `manifest.json` (800.9 GB).
+- Built the first optimized tables in `parquet-files/oct-2026/`: 31 tables (institutions, sources, topic
+  hierarchy), 23.8M rows, 101 MB; dry run and real run byte-identical. Converter fixes found on real data:
+  null Crossref Funder ID in `grid`, odd Wikipedia URL forms, exact-duplicate child rows.
+
 - `uv sync` on Yoda (Python 3.12.11 venv kept); jupyter, seaborn, brotli verified.
 - Works Parquet writes are now crash-safe: `src/parquet_io.atomic_write_parquet` writes `<name>.partial-<pid>`,
   `Path.replace()`s onto the target, removes stale partials on re-run. Tests cover crash and re-run.

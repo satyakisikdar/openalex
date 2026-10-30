@@ -50,7 +50,14 @@ Top-level columns are identical across every file of each table. "New" = no old 
   acronyms `['NGP', 'NGP']`) are dropped. `associated_institutions` repeats an ID with different
   relationships for 104 pairs (`parent` and `related`); those are distinct rows and kept.
 
-## Yoda env drift (resolved 2026-10-28)
+## Benchmarks: optimized small tables (oct-2026, built 2026-10-29)
+- 31 tables from institutions, sources, and the topic hierarchy: 23.8M rows, 101 MB, about 20 s end to end
+  on Yoda (read, convert, write, three-reader check). Dry run and real run are byte-identical (md5).
+- Defaults (5M rows per file, 1M-row row groups, brotli): every table is 1 file except `sources_topics` and
+  `sources_topic_share` (2 files each). Largest: `sources_topic_share` 20.6 MB, `sources_topics` 13.7 MB,
+  `sources_counts_by_year` 11.2 MB, `institutions_topic_share` 10.2 MB. Revisit sizes for authors and works.
+
+ (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
   brotli); code synced and `uv sync` run on Yoda 2026-10-29 (3.12.11 venv kept).
 
