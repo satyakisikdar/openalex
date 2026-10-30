@@ -84,6 +84,11 @@ def ror(arr: Col, label: str) -> pa.Array:
 
 def grid(arr: Col, label: str) -> pa.Array:
     arr = null_like_to_null(arr, label)
+    # All-digit values are not GRID IDs (raw has one Crossref Funder ID, 100011307, in this field): store null.
+    digits = pc.fill_null(pc.match_substring_regex(arr, r'^\d+$'), False)
+    if n := _count(digits):
+        log.info('%s: %s all-digit values are not GRID IDs, stored as null', label, f'{n:,}')
+    arr = pc.if_else(digits, pa.scalar(None, arr.type), arr)
     parts = extract(arr, r'^(?:https://www\.grid\.ac/institutes/)?(?P<g>grid\.\d+\.[0-9a-z]+)$', label)
     _log_normalized(arr, r'^grid\.', label)
     return pc.struct_field(parts, 'g')

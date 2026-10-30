@@ -45,6 +45,9 @@ def test_wikipedia_to_lang_title_and_nan_to_null() -> None:
 def test_grid_and_ror() -> None:
     grids = o.grid(pa.array(['grid.1.a', 'https://www.grid.ac/institutes/grid.445690.a']), 'x')
     assert grids.to_pylist() == ['grid.1.a', 'grid.445690.a']
+    assert o.grid(pa.array(['100011307']), 'x').to_pylist() == [None]  # funder ID in the grid field
+    with pytest.raises(SystemExit):
+        o.grid(pa.array(['grid-ish']), 'x')
     assert o.ror(pa.array(['https://ror.org/0013ka569']), 'x').to_pylist() == ['0013ka569']
 
 

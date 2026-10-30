@@ -40,6 +40,10 @@ Top-level columns are identical across every file of each table. "New" = no old 
   inference fails (`timestamp` vs `dictionary`). Read raw files individually (`pq.ParquetFile`) or with
   partitioning off.
 
+## Raw data quirks handled by the converter (snapshot 2026-10-14)
+- `institutions.ids.grid` for I4405257899 (Association for Molecular Pathology) is `100011307`, a Crossref
+  Funder ID, not a GRID ID: all-digit grid values are stored as null (logged).
+
 ## Yoda env drift (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
   brotli); code synced and `uv sync` run on Yoda 2026-10-29 (3.12.11 venv kept).
