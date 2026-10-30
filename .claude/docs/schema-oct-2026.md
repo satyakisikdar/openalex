@@ -411,3 +411,161 @@ The award-work link is `works.awards` and will be built with works as `works_awa
    Recommended: keep all (they are distinct OpenAlex IDs); note it in the README.
 6. **Empty strings to null** (names, descriptions, DOIs, investigator fields: 5,206 given names, 5,000 ORCIDs,
    360,121 affiliation countries, ...). Recommended, as everywhere else.
+
+# Works
+
+**Status: proposed 2026-10-30.** Nothing built. Abstracts are built last (decided) and are only sketched here.
+
+Raw: 464,765,485 works in 1,898 files (696 GB with abstracts), identical schema in every file, IDs unique (max
+7,221,746,310), none in `deleted_ids.csv.gz` (71,528,591 IDs). xpac works (137,776,075) and all their child rows
+are skipped, and an xpac work counts as absent everywhere (decided), leaving **326,989,410 works**. Every count below
+is non-xpac. Audit logs in `yoda:/home/ssikdar/scratch/`: `audit_works.log` (all works, includes xpac),
+`audit_works2.log` (lineage), `audit_works3.log` (anti-join orphans, row counts), `audit_works4.log` (no-year works,
+self-citations), `audit_works5_report.md` (independent pyarrow check), `audit_works6.log` (copies vs built tables),
+`audit_works6b.log` (authorship dedupe; the 6 version ran out of memory), `audit_works6c.log` (funders),
+`audit_works6d.log` (location IDs, licenses), and `audit_awards2.log` (works.awards vs awards, non-xpac). Numbers marked
+(all works) come from `audit_works.log` and include xpac works.
+
+Already decided (`parquet.md`): non-xpac everywhere; `<entity>_id` names; `has_*` columns are `bool`; `num_authors`
+counts distinct author IDs; `publication_year` on every table; no lineage expansion in `works_authorships`; no
+`works_related_works`; drop the 4,887,757 placeholder references (W4285719527) and the 1,059,673 self-references;
+keep the 3,168,890 no-year works with a null year; dedupe MeSH and repeated authors; `language` dict-encoded.
+
+19 tables. Without `works_abstracts` (180,705,981, built last): 18 tables, 13,018,972,487 rows as proposed (Decision 4
+adds about 1.4B; declining Decision 5 adds 122,945,088). Output size is measured at the
+dry run; `/data` has 2.0 TB free.
+
+## `works` (326,989,410 rows; old table)
+| Column | Type | Raw source | Observed | Note |
+|---|---|---|---|---|
+| work_id | int64 | id | up to 7,221,746,310 (all works) | |
+| doi | string | doi | 219,790,314 non-null; 4,006 bare `https://doi.org/` stored null; 111 more flagged malformed by audit5, kept | prefix stripped |
+| title | string | title | 1,642,752 null; 627,446 empty after trimming, stored null; max 5,000 chars (all works); audit5's whitespace test finds 626,228 empty, the build's count is logged | `display_name` dropped (equal) |
+| publication_year | uint16 | publication_year | 1007 to 2050; 3,168,890 null; 2,946 outside 1500 to 2027 | Decision 15 |
+| publication_date | date32 | publication_date | null exactly when the year is; year always matches | |
+| type | dict | type | 25 values (all works) | `type_crossref` gone from raw |
+| language | dict | language | 22,997,308 null, 77 empty stored null; 716 raw forms (all works; `en`, `EN`, `zh-cn`, `中文`) | as is (decided) |
+| num_authors | uint16 | authorships | max 4,943; 0 in 41,191,378 | distinct non-null author IDs (decided) |
+| num_authorships | uint16 | authors_count | max 5,000 | **new** name; equals the raw authorship list length in every row, so repeated authors still count (not derivable after dedupe) |
+| num_locations | uint16 | locations_count | max 1,196 | equals list length in every row |
+| num_references | uint16 | referenced_works_count | max 5,000 | Decision 5 |
+| num_citations | uint32 | cited_by_count | 0 to 801,217 | |
+| num_countries | uint8 | countries_distinct_count | max 131 | **new** |
+| num_institutions | uint16 | institutions_distinct_count | max 1,458 | **new** |
+| fwci | float32 | fwci | 235,131,876 non-null, 0 to 16,429.6 | **new** |
+| citation_percentile | float32 | citation_normalized_percentile.value | 236,193,180 non-null, 0 to 1 | **new** |
+| is_in_top_1_percent, is_in_top_10_percent | bool | citation_normalized_percentile.* | | **new** |
+| cited_by_percentile_year_min, cited_by_percentile_year_max | uint8 | cited_by_percentile_year | 91,349,198 non-null, 0 to 100 | **new** |
+| apc_list_value, apc_list_currency, apc_list_usd | uint32, dict, uint16 | apc_list | 62,468,930 non-null; value max 100,000,000; USD max 12,690; 41 currencies; minimum not audited (raw int32, the checked cast fails loudly if negative) | **new** |
+| apc_paid_value, apc_paid_currency, apc_paid_usd | uint32, dict, uint32 | apc_paid | 13,886,124 non-null; 0 fractional values; value max 100,000,000; USD max 40,261; 32 currencies | **new**; raw is double |
+| volume_work_id | int64 | volume.id | 26,090,789 non-null; 59,083 not a non-xpac work | **new**, Decision 13 |
+| volume_name | string | volume.display_name | differs from the volume work's title in 291,956 of 26,031,706 | **new**, Decision 13 |
+| has_complete_institution_info | bool | derived | 121,017,413 true | old meaning: at least one authorship with an author ID, and each of those has an institution ID |
+| has_grant_info | bool | `awards` non-empty | | old meaning, now from `awards` |
+| has_keywords | bool | `keywords` non-empty | | |
+| has_fulltext | bool | has_fulltext | 56,067,907 true | |
+| has_pdf, has_grobid_xml | bool | has_content.* | 55,351,470 and 53,071,376 true | **new** |
+| is_retracted, is_paratext | bool | same | 136,811 and 6,352,659 true | |
+| updated_date | date32 | updated_date | time of day dropped | |
+| created_date | date32 | created_date | 0 null | |
+
+## Child tables (every one has `work_id int64` and `publication_year uint16`, sorted by key)
+| Table | Columns (type) | Rows | Note |
+|---|---|---|---|
+| `works_ids` (old) | mag int64, pmid int64, openalex_curation string | 326,989,410 (1 per work) | 190,001,736 MAG, 40,941,838 PMID (0 malformed), 2,265 curation IDs (**new**, e.g. `oxjob747-...`). `pmcid` is gone from raw |
+| `works_open_access` (old) | is_oa bool, oa_status dict (6), oa_url string, any_repository_has_fulltext bool | 326,989,410 | oa_url 127,446,679 non-null (176,022 contain spaces, kept); 126 open works have no URL |
+| `works_biblio` (old) | volume, issue, first_page, last_page string | 326,989,410 | gains `publication_year`; 206 empty volumes and 5,615 empty first pages stored null |
+| `works_authorships` (old) | author_order uint16, author_position dict (3), author_id int64, raw_author_name string, raw_orcid string, is_corresponding bool, institution_id int64, raw_affiliation_string string | 1,017,785,385 | one row per (work, author, institution): 945,906,247 for authors with an ID (813,751,408 pairs) plus 71,879,138 for the 64,718,630 authorships with no author ID (37,011,934 with no institution). Dedupe removes 3,714,049 repeated copies in 1,967,330 works (4,112,506 rows). Decisions 1 to 3. Orphans kept, like authors: 783,770 rows point to 655,353 author IDs not in `oct-2026/authors` (535 rows carry the one ID `9999999999`), and 9,772 rows to 123 institution IDs not in `oct-2026/institutions`. `raw_affiliation_string`: the strings joined by `;` (1,542,774 empty elements); orphan counts are raw authorships, before dedupe. Decision 18 |
+| `works_corresponding_institutions` | institution_id int64 | 129,921,067 | **new**; not derivable (differs from the corresponding authors' institutions in 32,021,718 works); 0 repeats; 1,574 dangling, kept |
+| `works_locations` (old) | location_order uint16, is_primary bool, is_best_oa bool, native_id string, source_id int64, doi string, landing_page_url string, pdf_url string, version dict, license dict, is_oa bool, is_accepted bool, is_published bool, raw_source_name string, raw_type string, provenance dict | 493,204,605 | replaces `works_primary_location` and `works_best_oa_location` (Decision 6). Primary is always order 1; best OA is always in the list (127,446,652 works). source_id 441,063,741 non-null, 0 orphans. Location DOI differs from the work DOI for 6,234,659 primaries (kept). version: 3 values plus 135,233,215 null; license 10; provenance 6 (crossref, repo, mag, datacite, pubmed, curation). 76,644 landing and 171,387 PDF URLs contain spaces, kept |
+| `works_topics` (old) | is_primary_topic bool, score float32, topic_id uint16, topic_name dict, subfield_id uint16, subfield_name dict, field_id uint8, field_name dict, domain_id uint8, domain_name dict | 909,866,043 | the exact may-2025 column list (your directive), types tightened; Decision 8. At most 3 per work; primary is always first; 0 orphans; every name and hierarchy ID matches `oct-2026/topics` |
+| `works_keywords` (old) | keyword_id string, keyword dict, score float32 | 1,835,438,003 | 1,877,787 slugs (prefix stripped; 14,785 rows with non-ASCII slugs, valid); score 0.301 to 1 (all works). Decision 9 |
+| `works_concepts` (old) | concept_id int64, score float32 | 2,983,557,411 | 153,273 repeats removed (16,654 works), Decision 10; 0 orphans |
+| `works_mesh` (old) | descriptor_ui dict, descriptor_name dict, qualifier_ui dict, qualifier_name dict, is_major_topic bool | 405,160,042 | dedupe removes 888,391,044 of 1,293,551,086 raw rows (33,365,092 works), Decision 11. Gains `publication_year`; `is_major_topic` was a string in may-2025. 329 rows have a descriptor ID starting with `C` (supplementary concepts), kept |
+| `works_referenced_works` (old) | work_publication_year uint16, referenced_work_id int64, referenced_work_publication_year uint16 | 2,886,600,388 | from 3,015,492,906 raw: minus 4,887,757 placeholders and 1,059,673 self-references (decided), minus 122,945,088 references to works outside the build (xpac, merged, or missing; 4,098,040 of them in `deleted_ids`), Decision 4. Both years (your directive); 0 repeats |
+| `works_indexed_in` (old) | indexed_source dict (5, all works) | 283,508,753 | crossref, datacite, pubmed, doaj, arxiv |
+| `works_counts_by_year` | year uint16, num_citations uint32 | 464,280,714 | **new**; years 2012 to 2026 (all works; audit5 confirms 2012 to 2027 for non-xpac), 0 repeats |
+| `works_awards` | award_id int64 | 56,114,642 | **new**, replaces `works_grants`: 9,770,170 awards on 17,353,432 works, all resolve to `oct-2026/awards`, 0 repeats (`audit_awards2.log`). The award name, funder grant number, funder ID, and funder name in each element match `awards` in all 56,114,642, so only the ID is kept. The old `award_id` was the funder's grant number; that is now `awards.funder_award_id` |
+| `works_funders` | funder_id int64 | 62,850,709 | **new**; 38,644 funders, 0 orphans, name and ROR match `oct-2026/funders` in every row; 0 repeats |
+| `works_sustainable_development_goals` | sdg_id uint8, score float32 | 160,631,568 | **new**; 17 goals, score 0.4 to 1; name constant per goal |
+| `works_study_designs` | study_design dict | 22,095,517 | **new**; 7 slugs (`observational-study`, `case-report`, ...); name constant per slug |
+| `works_abstracts` (old, built last) | abstract string | 180,705,981 | plain text rebuilt from the inverted index; old `title` column dropped (in `works`); 2 invalid JSON rows in a sample of 1,566,193 |
+
+## Dropped, with proof
+| Raw column(s) | Why |
+|---|---|
+| `display_name` | equals `title` in every row |
+| `ids.openalex`, `ids.doi` | equal `id` and `doi` in every row |
+| `is_xpac` | xpac works are skipped |
+| top-level `institutions` | empty in every work |
+| `related_works` | decided (no table) |
+| `primary_location`, `best_oa_location` | primary is `locations[1]` in every work; best OA is always in `locations`: kept as `is_primary`, `is_best_oa` |
+| `primary_topic` | always `topics[1]`: kept as `is_primary_topic` |
+| `authorships.author.display_name`, `.orcid` | match `oct-2026/authors` in all 816,681,687 joined authorships (213 ORCIDs differ only in the case of `X`); the 783,770 orphan authorships lose them, Decision 18 |
+| `authorships.author.observed_orcids` | **not audited**; Decision 14 |
+| `authorships.institutions` name, ROR, country, type | match `oct-2026/institutions` in all 646,739,289 joined rows; the 9,772 orphan rows lose them, Decision 18 |
+| `authorships.institutions.lineage` | matches `institutions_lineage` (0 differences over 125,777 variants) |
+| `authorships.raw_affiliation_strings` | the same set as `affiliations[].raw_affiliation_string` in all 882,184,087 authorships |
+| location `source` name, ISSN-L, type, host organization | match `oct-2026/sources` in all 441,063,741 |
+| location `source` ISSN list, `is_oa`, `is_in_doaj`, `is_core`, `listed_in`, host name and lineage | **not compared**; Decision 19 |
+| location `license_id` | equals `https://openalex.org/licenses/` + `license` in all 493,204,605 |
+| topic names and subfield, field, domain IDs and names | match `oct-2026/topics`, `subfields`, `fields`, and `domains` in all 909,866,043 (kept in `works_topics` per Decision 8) |
+| concept `display_name`, `level`, `wikidata` | match `oct-2026/concepts` in all 2,983,710,684 |
+| award element fields other than `id` | match `oct-2026/awards` in all 56,114,642 |
+| funder `display_name`, `ror` | match `oct-2026/funders` in all 62,850,709 |
+| SDG and study design `display_name` | constant per ID (17 and 7 pairs) |
+
+## Decisions for the user
+1. **Repeated authors** (3,714,049 extra copies of a (work, author) pair in 1,967,330 works; the copies disagree on
+   institutions 355,031 times, position 1,159,371, name 1,146,255, corresponding flag 321,056, raw strings 473,387).
+   Recommended: `author_order`, `author_position`, and `raw_author_name` from the first copy; `is_corresponding`
+   true if any copy is; institutions and raw strings unioned. 1,017,785,385 rows.
+2. **Authorships with no author ID** (64,718,630; the old flattener dropped them). Recommended: keep them with a
+   null `author_id` and `author_order` (list position, 1-based), so names and affiliations of unmatched authors
+   survive. 71,879,138 rows.
+3. **`raw_orcid`** (new; 147,793,139 non-null, 323 with a lowercase `x`). Recommended: keep, bare form with an
+   uppercase `X`, as in awards.
+4. **Authorship countries and affiliations.** `countries` differs from the institutions' countries in 1,664,425
+   authorships, always where an institution has no country code; and `affiliations` is the only link from each raw
+   string to its institutions (153,062,999 authorships have 2 or more; the institution sets differ in 131,289).
+   Recommended: add `works_authorships_countries` (author_order, country_code; 519,530,884 rows before dedupe) and
+   `works_authorships_affiliations` (author_order, raw_affiliation_string, institution_id; 887,844,526 rows before
+   dedupe). Declining both loses this information.
+5. **References to works outside the build** (122,945,088: xpac, merged, or missing). Recommended: drop them, as the
+   old flattener dropped deleted and merged targets and "everything non-xpac" makes xpac targets absent; then every
+   `referenced_work_id` joins `works`. `num_references` keeps OpenAlex's raw count (like `num_funded_outputs`), so it
+   can exceed the table's rows. Keeping them instead: 3,009,545,476 rows, null target year.
+6. **One `works_locations` table** with `is_primary` and `is_best_oa` instead of three old tables. Also keep the raw
+   location `id` as `native_id` (a source-side ID such as a DOI, not a W ID; 491,611,736 distinct of 493,204,605;
+   not derivable). Recommended.
+7. **1:1 old tables** `works_ids`, `works_open_access`, `works_biblio` stay separate, one row per work; the new 1:1
+   fields go in `works`. Recommended.
+8. **`works_topics` with names** (your directive to match the existing table; dict-encoded, so cheap) versus IDs
+   only (the convention elsewhere). Recommended: with names, as you asked.
+9. **Keyword names** are not constant per ID in 22 slugs (`massachusetts` is both "Massachusetts" and "mechanical
+   alloying"). Recommended: keep `keyword` (the old column) next to `keyword_id`, dict-encoded; no lookup table.
+10. **Repeated concepts** (16,654 works; 144,685 exact copies plus 8,588 with a different score). Recommended: keep
+    the first occurrence of each concept. 2,983,557,411 rows.
+11. **MeSH dedupe key** (work, descriptor_ui, qualifier_ui); `is_major_topic` true if any copy is; names from the
+    first copy. Descriptor names vary in 77 IDs (2,242,666 rows; MeSH renames such as "Major Depressive Disorder"
+    and "Depressive Disorder, Major"), so names stay in the table. 405,160,042 rows (exact copies only would leave
+    406,285,705). Recommended.
+12. **New columns** marked **new** above need your approval (CLAUDE.md rule). Recommended: all.
+13. **Volume:** keep `volume_work_id` including the 59,083 that point outside the build, and keep `volume_name`
+    (not derivable). Recommended.
+14. **`observed_orcids`** (a list per authorship author, not audited). Recommended: drop; the ORCID lives on the
+    author profile. Say if you want it audited first.
+15. **Years outside 1500 to 2027** (2,946 values, min 1007, max 2050): keep as is, and log. Recommended.
+16. **Empty strings to null** (627,446 titles, 4,006 DOIs, 77 languages, 206 volumes, 5,615 first pages, 1,542,774
+    affiliation strings). Recommended, as everywhere else.
+17. **Build with capped DuckDB**, one statement per table, dedupe done per work with list functions (a global
+    group-by over the 817M authorships ran out of memory at 60 GB in `audit_works6`). Recommended.
+18. **Orphans lose their nested details.** The 783,770 authorships whose author ID is not in `oct-2026/authors` lose
+    the author's name and ORCID copy, and the 9,772 rows with an institution not in `oct-2026/institutions` lose
+    its name, ROR, country, and type. Recommended: accept (IDs and raw strings are kept; under 0.1%).
+19. **Location source fields not compared** (ISSN list, OA, DOAJ, core flags, `listed_in`, host name and lineage).
+    Recommended: drop; they describe the source and live in the `sources` tables. Say if you want a check first.
+20. **`corresponding_author_ids`** matches the `is_corresponding` authorships in all but 1 work (W4283721846).
+    Recommended: drop the column and log that work.
+21. **`raw_orcid` cleanup (Decision 3)** assumes the 323 malformed values are a lowercase `x`; the build logs any
+    value that still fails the ORCID pattern and stores it null.
