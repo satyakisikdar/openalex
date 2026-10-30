@@ -16,6 +16,10 @@
 - Awards audited and built in `oct-2026/` (DuckDB path): `awards` 17,927,707, `awards_investigators` 7,825,071,
   `awards_institutions` 5,899,561 rows, 2.5 GB, about 2 minutes; byte-identical to the dry run. `oct-2026/` now has
   50 tables (14 GB). Next: works (`works_awards` links to awards), abstracts last.
+- Works section of `schema-oct-2026.md` not yet written: `audit_works6` (post-dedupe counts for authorships, MeSH,
+  and concepts; nested copies vs built tables; funders) running on Yoda (`~/scratch/audit_works6.log`). Already
+  known: `works_awards` needs only `award_id` (copied fields match `awards` in all 56,114,642 pairs);
+  `corresponding_institution_ids` (32.0M works differ) and `authorships.countries` (1.66M differ) are not derivable.
 
 ## 2026-10-29
 - Works schema proposal drafted (in chat, not yet in `schema-oct-2026.md`) from `audit_works.log`; two numbers
