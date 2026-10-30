@@ -106,6 +106,13 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   `raw_affiliation_string` = the raw strings joined by `;`.
 - The old flattener skipped `is_xpac` works and rows referencing deleted or merged IDs.
 - **Decided 2026-10-29:** keep skipping `is_xpac` works and all their child rows; log the count.
+- **Decided 2026-10-29:** everything (audits, every works table, every lookup) uses non-xpac works only; xpac
+  works are treated as absent, so a reference to an xpac work counts as dangling.
+- **Decided 2026-10-29:** `num_authors` = number of distinct non-null author IDs on the work.
+- **Decided 2026-10-29:** no `works_related_works` table; drop the 4,887,758 placeholder references
+  (W4285719527); `language` stays a dictionary-encoded column; build `funders` before works; build abstracts
+  last. Still open: works with no `publication_year` (15.6M over all works) and self-citations (1.09M works),
+  both under investigation in `audit_works4`.
 - **Decided 2026-10-29:** `works_authorships` has no lineage expansion: one row per work, author, and named
   institution. `institution_lineage_level` and `assigned_institution` are dropped (derivable via
   `institutions_lineage`; list order was not depth).

@@ -1,6 +1,15 @@
 # Progress
 
 ## 2026-10-29
+- Works schema proposal drafted (in chat, not yet in `schema-oct-2026.md`) from `audit_works.log`; two numbers
+  in it were query artifacts: topic orphans (1.25B, really 0) and work-author duplicates (null author IDs
+  collapsed). User decisions recorded in `.claude/docs/parquet.md` (non-xpac everywhere, `num_authors` =
+  distinct author IDs, no `works_related_works`, funders first, abstracts last). Running overnight on Yoda,
+  under `~/scratch/run_audits_supervised.sh` (reruns a failed audit up to 3 times):
+  `audit_works3` (DuckDB anti-join orphans, duplicates, non-xpac row counts, derivability, name constancy),
+  `audit_works4` (works with no year, self-citations), `audit_works5` (independent pyarrow check of
+  missing, malformed, and dangling items; report `audit_works5_report.md`). Next: read the logs, build
+  funders, finalize the works section.
 - Works audit finished (31 queries + follow-up): xpac works are 137.8M of 464.8M (skipped); lineage expansion
   would grow authorships 647M -> 1.0B rows (1.55x) and is fully derivable (0 lineage differences), so it is
   dropped. Schema proposal not yet written. Added project hooks (ruff format, Yoda status at session start),

@@ -12,6 +12,16 @@
   - Outputs: `$BASEDIR/processed-snapshots/{csv-files,parquet-files}/<MONTH>/`.
   - Works Parquet: one file per input part per table, `works_<table>/<date>_part_NNN.parquet`.
 - Long jobs: run under `tmux`/`nohup` on Yoda with a log file, never in a foreground ssh session.
+  - `nohup` from a non-interactive ssh shell has a soft open-file limit of 1,024; reading all 1,898 works
+    files needs `ulimit -n "$(ulimit -Hn)"` first ("Too many open files" otherwise).
+  - Chain follow-up steps in a script on Yoda that waits on a PID (`while kill -0 <pid>`), not on
+    `pgrep -f <name>`: the waiter's own command line matches the pattern. Never `pkill -f` over ssh either (it
+    matched and killed the ssh session itself); stop processes by PID.
+  - SIGTERM does not interrupt a DuckDB query in progress (the Python handler runs only when the query
+    returns); use SIGKILL on that PID if it must stop now, then check the spill dir.
+  - pyarrow: forking a pool after pyarrow has started its thread pools deadlocks the workers; use a `spawn`
+    pool and share big arrays as memory-mapped `.npy`. `pq.read_table` fails on the raw `updated_date=*/`
+    dirs (use `pq.ParquetFile(f).read()`); `pc.list_parent_indices` aborts the process on a `MapArray`.
 
 ## Pipeline order (`__main__` in `flatten_openalex_files.py`)
 1. `flatten_merged_entries()` -> `<kind>_combined_merged_ids.parquet` (skip-ids). Must run before works.
