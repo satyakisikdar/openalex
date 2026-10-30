@@ -102,12 +102,31 @@ def wikidata(arr: Col, label: str) -> pa.Array:
     return cast(pc.struct_field(parts, 'q'), pa.uint32(), label)
 
 
+WIKIPEDIA_HOST = r'^https?://[a-z][a-z0-9-]*(?:\.m)?\.wikipedia\.org/'
+WIKIPEDIA = (
+    r'^https?://(?P<lang>[a-z][a-z0-9-]*)(?:\.m)?\.wikipedia\.org/'
+    r'(?:(?:\?title=|w/index\.php\?title=)(?P<q>[^&#]+)(?:&.*)?'  # ?title= forms: drop extra query params
+    r'|(?:wiki/|[a-z]{2,3}(?:-[a-z]+)?/)?(?P<t>[^?].*))$'  # /wiki/, language variants (/zh-hans/), or no prefix
+)
+
+
 def wikipedia(arr: Col, label: str) -> pa.Array:
-    """`http(s)://<lang>.wikipedia.org/wiki/<Title>` -> `<lang>:<Title>`."""
+    """
+    Any Wikipedia article URL -> `<lang>:<Title>` (rebuild: `https://<lang>.wikipedia.org/wiki/<Title>`).
+
+    Mobile hosts, language-variant paths, and `?title=` forms are normalized. Non-Wikipedia URLs (company
+    sites, Commons, Wikivoyage, ...) are stored as null; both counts are logged.
+    """
     arr = null_like_to_null(arr, label)
-    parts = extract(arr, r'^https?://(?P<lang>[a-z][a-z0-9-]*)\.wikipedia\.org/wiki/(?P<title>.+)$', label)
-    _log_normalized(arr, r'^https://', label)
-    return pc.binary_join_element_wise(pc.struct_field(parts, 'lang'), pc.struct_field(parts, 'title'), ':')
+    other = pc.invert(pc.fill_null(pc.match_substring_regex(arr, WIKIPEDIA_HOST), True))
+    if n := _count(other):
+        log.info('%s: %s non-Wikipedia URLs stored as null', label, f'{n:,}')
+    arr = pc.if_else(other, pa.scalar(None, arr.type), arr)
+    parts = extract(arr, WIKIPEDIA, label)
+    _log_normalized(arr, r'^https://[a-z][a-z0-9-]*\.wikipedia\.org/wiki/', label)
+    q, t = pc.struct_field(parts, 'q'), pc.struct_field(parts, 't')
+    title = pc.if_else(pc.equal(q, ''), t, q)
+    return pc.binary_join_element_wise(pc.struct_field(parts, 'lang'), title, ':')
 
 
 def _log_normalized(arr: pa.Array, canonical: str, label: str) -> None:

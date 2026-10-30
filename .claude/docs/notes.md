@@ -43,6 +43,9 @@ Top-level columns are identical across every file of each table. "New" = no old 
 ## Raw data quirks handled by the converter (snapshot 2026-10-14)
 - `institutions.ids.grid` for I4405257899 (Association for Molecular Pathology) is `100011307`, a Crossref
   Funder ID, not a GRID ID: all-digit grid values are stored as null (logged).
+- `institutions.ids.wikipedia`: 49 links use mobile hosts, language-variant paths (`/zh-hans/`, `/sr-el/`),
+  or `?title=` forms; normalized to `lang:Title`. 8 are not Wikipedia (company sites, Commons, Wikivoyage,
+  Fandom, a `wikipedi0` typo) and are stored as null.
 
 ## Yoda env drift (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,

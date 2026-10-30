@@ -42,6 +42,23 @@ def test_wikipedia_to_lang_title_and_nan_to_null() -> None:
     assert o.wikipedia(arr, 'x').to_pylist() == ['en:HIV/AIDS', 'pt:Funda%C3%A7%C3%A3o', None]
 
 
+def test_wikipedia_odd_url_forms_from_real_data() -> None:
+    cases = {
+        'https://zh.wikipedia.org/zh-hans/X': 'zh:X',
+        'https://zh.m.wikipedia.org/zh-hans/X': 'zh:X',
+        'https://sr.wikipedia.org/sr-el/X': 'sr:X',
+        'https://en.m.wikipedia.org/wiki/KTH_Royal_Institute_of_Technology': 'en:KTH_Royal_Institute_of_Technology',
+        'https://en.wikipedia.org/?title=Museum_Boerhaave': 'en:Museum_Boerhaave',
+        'https://en.wikipedia.org/w/index.php?title=Graduate_Institute&redirect=no': 'en:Graduate_Institute',
+        'https://en.wikipedia.org/Saifee_Hospital_Tanzania': 'en:Saifee_Hospital_Tanzania',
+        'https://en.wikipedia.org/wiki/AT%26T?x': 'en:AT%26T?x',  # standard form is never altered
+        'https://commons.wikimedia.org/wiki/Category:X': None,
+        'https://en.m.wikipedi0.org/wiki/Bassano': None,
+        'http://www.heidelbergcement.com/en/': None,
+    }
+    assert o.wikipedia(pa.array(list(cases)), 'x').to_pylist() == list(cases.values())
+
+
 def test_grid_and_ror() -> None:
     grids = o.grid(pa.array(['grid.1.a', 'https://www.grid.ac/institutes/grid.445690.a']), 'x')
     assert grids.to_pylist() == ['grid.1.a', 'grid.445690.a']
