@@ -276,6 +276,7 @@ def build_institutions(raw: pa.Table, max_year: int) -> dict[str, pa.Table]:
             'ancestor_institution_id': o.openalex_id(lin['lineage'], 'I', 'lineage'),
         }
     )
+    lin = o.dedupe(lin, 'institutions_lineage')  # one institution lists itself twice
     lin = _drop_self(
         lin,
         pc.equal(lin['institution_id'], lin['ancestor_institution_id']),

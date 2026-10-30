@@ -176,13 +176,23 @@ def drop_rows(table: pa.Table, drop: Col, label: str, why: str) -> pa.Table:
     return table.filter(pc.invert(drop))
 
 
+def dedupe(table: pa.Table, label: str) -> pa.Table:
+    """Drop rows that repeat another row in every column (raw lists sometimes repeat an element; logged)."""
+    unique = table.group_by(table.column_names, use_threads=False).aggregate([])
+    if n := table.num_rows - unique.num_rows:
+        log.info('%s: dropped %s exact duplicate rows', label, f'{n:,}')
+        return unique.select(table.column_names)
+    return table
+
+
 def conform(columns: dict[str, Col], schema: pa.Schema, label: str, sort_keys: list[str]) -> pa.Table:
-    """Cast `columns` to exactly `schema` (same names, same order), then stable-sort by `sort_keys`."""
+    """Cast `columns` to exactly `schema` (same names, same order), drop exact duplicates, sort by `sort_keys`."""
     missing, extra = set(schema.names) - set(columns), set(columns) - set(schema.names)
     if missing or extra:
         raise SystemExit(f'{label}: columns differ from schema; missing {sorted(missing)}, extra {sorted(extra)}')
     arrays = [cast(columns[f.name], f.type, f'{label}.{f.name}') for f in schema]
-    return pa.Table.from_arrays(arrays, schema=schema).sort_by([(k, 'ascending') for k in sort_keys])
+    table = dedupe(pa.Table.from_arrays(arrays, schema=schema), label)
+    return table.sort_by([(k, 'ascending') for k in sort_keys])
 
 
 def assert_unique(arr: Col, label: str) -> None:

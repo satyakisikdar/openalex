@@ -34,11 +34,11 @@ def test_build_institutions() -> None:
         'display_name': 'Inst',
         'country_code': 'NO',
         'type': 'company',
-        'lineage': [f'{OA}I1', f'{OA}I2'],
+        'lineage': [f'{OA}I1', f'{OA}I1', f'{OA}I2'],  # real data: one institution lists itself twice
         'is_super_system': False,
         'homepage_url': 'http://x',
         'image_url': None,
-        'display_name_acronyms': ['IN'],
+        'display_name_acronyms': ['IN', 'IN'],
         'display_name_alternatives': [],
         'works_count': 10,
         'cited_by_count': 20,
@@ -69,6 +69,7 @@ def test_build_institutions() -> None:
     _check(out)
     assert out['institutions_lineage'].to_pylist() == [{'institution_id': 1, 'ancestor_institution_id': 2}]
     assert out['institutions_roles'].column('role').to_pylist() == ['funder']
+    assert out['institutions_display_name_acronyms'].num_rows == 1
     assert out['institutions_counts_by_year'].column('year').to_pylist() == [2024]
     assert out['institutions_ids'].to_pylist() == [
         {'institution_id': 1, 'grid': 'grid.1.a', 'wikipedia': None, 'wikidata': 5}

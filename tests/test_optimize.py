@@ -90,6 +90,8 @@ def test_conform_requires_exact_columns_and_sorts() -> None:
     assert out.schema == schema and out.column('id').to_pylist() == [1, 2]
     with pytest.raises(SystemExit, match='missing'):
         o.conform({'id': pa.array([1])}, schema, 't', ['id'])
+    dup = o.conform({'id': pa.array([1, 1, 1]), 'n': pa.array([5, 5, 6])}, schema, 't', ['id', 'n'])
+    assert dup.to_pylist() == [{'id': 1, 'n': 5}, {'id': 1, 'n': 6}]  # exact duplicates dropped, order sorted
 
 
 def test_write_table_dir_swaps_and_passes_three_reader_check(tmp_path: Path) -> None:

@@ -46,6 +46,9 @@ Top-level columns are identical across every file of each table. "New" = no old 
 - `institutions.ids.wikipedia`: 49 links use mobile hosts, language-variant paths (`/zh-hans/`, `/sr-el/`),
   or `?title=` forms; normalized to `lang:Title`. 8 are not Wikipedia (company sites, Commons, Wikivoyage,
   Fandom, a `wikipedi0` typo) and are stored as null.
+- Exact-duplicate list elements (Bronovo Hospital lists itself twice in `lineage`; one institution has
+  acronyms `['NGP', 'NGP']`) are dropped. `associated_institutions` repeats an ID with different
+  relationships for 104 pairs (`parent` and `related`); those are distinct rows and kept.
 
 ## Yoda env drift (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
