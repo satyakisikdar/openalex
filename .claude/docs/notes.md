@@ -9,8 +9,9 @@
   3. Row counts reconcile per table against raw element counts, with every difference explained (bad years,
      duplicates, deleted IDs, xpac works).
   4. Nothing in `notes.md` still needs the raw files (open audits, the size comparison, re-runs after fixes).
-  Caveat: the files can be re-downloaded from the public `s3://openalex` bucket, but only the latest snapshot
-  is there, so the 2026-10-14 version cannot be fetched again once OpenAlex publishes a newer one.
+  Caveat: the files can be re-downloaded from the public `s3://openalex` bucket, but it likely holds only the
+  current snapshot (unverified; check OpenAlex docs or the bucket before deleting), so the 2026-10-14 version
+  may not be fetchable again once a newer one is published.
 - Size comparison: raw OpenAlex Parquet (`openalex-snapshot/data/parquet/<entity>/`, 800.9 GB total) vs our
   optimized tables (`parquet-files/oct-2026/`), per entity (e.g. raw `authors` 50.7 GB vs the sum of all
   `authors*` tables). Read both from the manifests (`content_length` in raw `manifest.json`, `bytes` in each
