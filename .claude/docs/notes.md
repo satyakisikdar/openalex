@@ -97,6 +97,9 @@ Top-level columns are identical across every file of each table. "New" = no old 
   topic_share 40%, concepts 53%, sources 7% (21.48 GB of nested source details -> 1.43 GB of IDs),
   counts_by_year 81%. Dropped raw columns: 4.44 GB (raw_author_names 2.55, ids 1.07, works_api_url 0.82).
   Savings come from dropping nested copies of other entities, numeric IDs, and brotli vs snappy.
+- Sort order and row-group skipping (DuckDB, `authors_affiliations`, 263M rows, 263 row groups, warm cache):
+  `author_id = x` 16 ms, `author_id between` 16 ms, `institution_id = Harvard` (not the sort key) 392 ms. Tables
+  are fast only on their leading sort column; decide a second sort order for works lookup tables up front.
 
 ## Yoda env drift (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
