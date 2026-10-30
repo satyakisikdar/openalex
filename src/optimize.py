@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 from collections.abc import Iterable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -307,38 +308,53 @@ def write_batches_dir(
     source: dict[str, Any],
     rows_per_file: int = 5_000_000,
     row_group_size: int = 1_000_000,
+    writers: int = 8,
 ) -> dict[str, Any]:
     """
-    Same layout and atomic swap as `write_table_dir`, for tables too big for memory: stream record batches
-    (cast to `schema`), rolling to a new part file every `rows_per_file` rows.
+    Same layout and atomic swap as `write_table_dir`, for tables too big for memory.
+
+    Record batches are cast to `schema` and re-cut so part file i always holds exactly rows
+    [i * rows_per_file, (i + 1) * rows_per_file), whatever batch sizes the source yields. Up to `writers` files
+    are compressed at once on threads (pyarrow releases the GIL while writing); at most `writers` finished
+    chunks wait in memory, so memory stays bounded.
     """
     partial = _start_partial(target)
-    writer: pq.ParquetWriter | None = None
+    pool = ThreadPoolExecutor(max_workers=writers, thread_name_prefix='parquet-writer')
+    pending: set[Future[None]] = set()
+    names: list[str] = []
+
+    def submit(chunk: pa.Table) -> None:
+        while len(pending) >= writers:  # bound memory: wait for a writer to free up
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for f in done:
+                pending.discard(f)
+                f.result()  # re-raise a writer's error here
+        names.append(f'part-{len(names):05d}.parquet')
+        path = partial / names[-1]
+        pending.add(pool.submit(pq.write_table, chunk, path, compression='brotli', row_group_size=row_group_size))
+
     try:
-        names: list[str] = []
-        in_file = 0
+        buf: list[pa.RecordBatch] = []
+        buf_rows = 0
         for batch in batches:
             if not batch.num_rows:
                 continue
             arrays = [cast(batch.column(f.name), f.type, f'{target.name}.{f.name}') for f in schema]
-            batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
-            if writer is None or in_file >= rows_per_file:
-                if writer is not None:
-                    writer.close()
-                names.append(f'part-{len(names):05d}.parquet')
-                writer, in_file = pq.ParquetWriter(partial / names[-1], schema, compression='brotli'), 0
-            writer.write_batch(batch, row_group_size=row_group_size)
-            in_file += batch.num_rows
-        if writer is None:  # empty table: one empty file, like write_table_dir
-            names.append('part-00000.parquet')
-            pq.write_table(schema.empty_table(), partial / names[-1], compression='brotli')
-        else:
-            writer.close()
-            writer = None
+            buf.append(pa.RecordBatch.from_arrays(arrays, schema=schema))
+            buf_rows += batch.num_rows
+            while buf_rows >= rows_per_file:
+                table = pa.Table.from_batches(buf, schema=schema)
+                submit(table.slice(0, rows_per_file))
+                rest = table.slice(rows_per_file)
+                buf, buf_rows = rest.to_batches(), rest.num_rows
+        if buf_rows or not names:  # the remainder, or one empty file for an empty table
+            submit(pa.Table.from_batches(buf, schema=schema))
+        for f in pending:
+            f.result()
+        pool.shutdown()
         return _finish(partial, target, schema, names, source)
     except BaseException:
-        if writer is not None:
-            writer.close()
+        pool.shutdown(wait=True, cancel_futures=True)  # no writer may still be writing into partial
         shutil.rmtree(partial, ignore_errors=True)
         raise
 

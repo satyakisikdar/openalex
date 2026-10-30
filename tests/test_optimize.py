@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from src import optimize as o
@@ -123,3 +124,28 @@ def test_write_batches_dir_rolls_files_and_matches_table_layout(tmp_path: Path) 
     assert o.read_check(target, schema) == 6
     empty = o.write_batches_dir(iter([]), schema, tmp_path / 'oct-2026' / 'empty', source={})
     assert empty['rows'] == 0 and o.read_check(tmp_path / 'oct-2026' / 'empty', schema) == 0
+
+
+def test_write_batches_dir_cuts_exact_files_and_parallel_output_is_identical(tmp_path: Path) -> None:
+    schema = pa.schema([('id', pa.int64())])
+    uneven = [pa.record_batch({'id': list(range(i, i + n))}) for i, n in ((0, 3), (3, 1), (4, 5), (9, 0), (9, 2))]
+    even = [pa.record_batch({'id': list(range(i, i + 1))}) for i in range(11)]
+    m1 = o.write_batches_dir(iter(uneven), schema, tmp_path / 'a' / 't', source={}, rows_per_file=4, writers=1)
+    m8 = o.write_batches_dir(iter(even), schema, tmp_path / 'b' / 't', source={}, rows_per_file=4, writers=8)
+    assert [f['rows'] for f in m1['files']] == [f['rows'] for f in m8['files']] == [4, 4, 3]
+    for f in m1['files']:  # same bytes whatever the batch sizes or the number of writers
+        assert (tmp_path / 'a' / 't' / f['name']).read_bytes() == (tmp_path / 'b' / 't' / f['name']).read_bytes()
+    assert pq.read_table(tmp_path / 'b' / 't').column('id').to_pylist() == list(range(11))
+
+
+def test_write_batches_dir_writer_error_leaves_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*_: object, **__: object) -> None:
+        raise RuntimeError('disk full')
+
+    monkeypatch.setattr(o.pq, 'write_table', boom)
+    batches = [pa.record_batch({'id': [1, 2]})] * 3
+    with pytest.raises(RuntimeError, match='disk full'):
+        o.write_batches_dir(
+            iter(batches), pa.schema([('id', pa.int64())]), tmp_path / 'x' / 't', source={}, rows_per_file=2
+        )
+    assert list((tmp_path / 'x').iterdir()) == []  # partial removed, no target
