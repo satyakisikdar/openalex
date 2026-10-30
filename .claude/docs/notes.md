@@ -5,7 +5,7 @@
   optimized tables (`parquet-files/oct-2026/`), per entity (e.g. raw `authors` 50.7 GB vs the sum of all
   `authors*` tables). Read both from the manifests (`content_length` in raw `manifest.json`, `bytes` in each
   `_manifest.json`); note what each side contains (we drop derivable and API-URL columns) so the ratio isn't
-  misread. Do it once works is built.
+  misread. Authors done (see Benchmarks: authors); repeat for works once it is built, then all entities.
 
 ## Known bugs in `preprocessing/flatten_openalex_files.py` (open)
 - Works Parquet written before 2026-10-29 (pre `atomic_write_parquet`) is not validated: a file truncated by
