@@ -1,6 +1,16 @@
 # Maintainer notes
 
 ## Planned
+- **Possibly delete the raw Parquet snapshot** (`openalex-snapshot/data/parquet/`, 800.9 GB) to free space, but
+  only after every condition below holds, and only on the user's explicit go-ahead (never automatic):
+  1. Every entity is built in `oct-2026/`, works included, with dry run and real run matching.
+  2. Every raw column is accounted for: kept, or dropped for a documented reason (derivable, duplicate, API URL,
+     or all null) in `schema-oct-2026.md`. A column-by-column checklist per entity, not a spot check.
+  3. Row counts reconcile per table against raw element counts, with every difference explained (bad years,
+     duplicates, deleted IDs, xpac works).
+  4. Nothing in `notes.md` still needs the raw files (open audits, the size comparison, re-runs after fixes).
+  Caveat: the files can be re-downloaded from the public `s3://openalex` bucket, but only the latest snapshot
+  is there, so the 2026-10-14 version cannot be fetched again once OpenAlex publishes a newer one.
 - Size comparison: raw OpenAlex Parquet (`openalex-snapshot/data/parquet/<entity>/`, 800.9 GB total) vs our
   optimized tables (`parquet-files/oct-2026/`), per entity (e.g. raw `authors` 50.7 GB vs the sum of all
   `authors*` tables). Read both from the manifests (`content_length` in raw `manifest.json`, `bytes` in each
