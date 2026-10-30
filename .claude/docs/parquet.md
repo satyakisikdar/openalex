@@ -92,6 +92,20 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
 - Standard count names everywhere: `num_works`, `num_citations`, `num_oa_works`.
 - Dates are `date32`; raw timestamps carry an update-job time of day, which is dropped (and counted in the log).
 
+## Works: user directives and old semantics (from `process_work_json_v2` and `src.utils.parse_authorships`)
+- ID columns are named `<entity>_id` (`work_id`, `author_id`, `institution_id`, `source_id`, `topic_id`,
+  `referenced_work_id`, ...), never bare `id`.
+- Every `has_*` column is `bool` (`has_fulltext`, `has_pdf`, `has_grobid_xml`, `has_keywords`, ...).
+- `has_complete_institution_info` (derived, kept for filtering): true if every authorship that has an author ID
+  has at least one valid (non-deleted) institution ID; false when there are no authorships.
+- `num_authors`: authorships with a non-deleted author ID. `num_locations`, `num_references`: list lengths.
+- `has_keywords`, `has_grant_info`: whether the list is non-empty.
+- `works_topics.is_primary_topic`: true for the first topic in the list.
+- Old `works_authorships`: one row per author, institution, and institution lineage level
+  (`institution_lineage_level`, `assigned_institution` true for the institution itself), with
+  `raw_affiliation_string` = the raw strings joined by `;`.
+- The old flattener skipped `is_xpac` works and rows referencing deleted or merged IDs.
+
 ## Column names
 - Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
   (`flatten_openalex_files.py`, top of file), e.g. `work_id`, `institution_id`, `institution_name`.
