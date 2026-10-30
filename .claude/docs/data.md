@@ -22,6 +22,9 @@
   - pyarrow: forking a pool after pyarrow has started its thread pools deadlocks the workers; use a `spawn`
     pool and share big arrays as memory-mapped `.npy`. `pq.read_table` fails on the raw `updated_date=*/`
     dirs (use `pq.ParquetFile(f).read()`); `pc.list_parent_indices` aborts the process on a `MapArray`.
+  - `combine_chunks()` on a `string` or list column over 2 GB overflows its 32-bit offsets; cast to
+    `large_string` first. The converter's in-memory path (`load_raw`, `_array` in `src/optimize.py`) still combines
+    chunks unguarded: fine for small entities, but fix it (or use the DuckDB path) before `awards` or works.
 
 ## Pipeline order (`__main__` in `flatten_openalex_files.py`)
 1. `flatten_merged_entries()` -> `<kind>_combined_merged_ids.parquet` (skip-ids). Must run before works.

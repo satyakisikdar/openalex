@@ -75,6 +75,14 @@ Top-level columns are identical across every file of each table. "New" = no old 
   `sources_topic_share` (2 files each). Largest: `sources_topic_share` 20.6 MB, `sources_topics` 13.7 MB,
   `sources_counts_by_year` 11.2 MB, `institutions_topic_share` 10.2 MB. Revisit sizes for authors and works.
 
+## Benchmarks: funders (oct-2026, built 2026-10-30)
+- 5 tables, 940,885 rows, 6.1 MB, one file each; whole build about 1 s (in-memory pyarrow path). Real write
+  byte-identical to the dry run (15 files, md5).
+- Raw quirks: 1 Wikidata value without scheme or `www.` (`wikidata.org/wiki/Q2217705`; the `wikidata` helper now
+  accepts it), 22 repeated alternate titles, 387 counts-by-year entries outside 1500 to 2030.
+- `role_id` (here and in `institutions_roles`) is not in `ID_COLUMNS`, so `drop_deleted` would not catch a
+  deleted placeholder there; no placeholder occurs in this snapshot.
+
 ## Deleted and merged IDs (snapshot 2026-10-14)
 - Placeholder IDs for deleted entities (`src.optimize.DELETED_IDS`): work 4285719527, author 5317838346,
   institution 4389424196, source 4317411217. Only the institution one occurs: it is a real row in raw

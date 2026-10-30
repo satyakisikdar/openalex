@@ -5,7 +5,9 @@
   the 60 GB cap 3 times; audit5 covers it). Decided: keep the 3,168,890 works with no year (null
   `publication_year`), drop self-references (1,059,673), dedupe MeSH and repeated authors; recorded in `parquet.md`.
 - Funders audited (41,799 rows, `audit_funders.log`, `audit_funders2.log`); schema section proposed in
-  `schema-oct-2026.md`, not built. Open: 6 decisions, including whether to audit `awards` (17.9M rows) before works.
+  `schema-oct-2026.md`. All 6 decisions approved; funder years kept up to 2030 (long-term grants).
+- Built funders in `oct-2026/` (5 tables, 940,885 rows, 6.1 MB); real write byte-identical to the dry run;
+  README now covers 47 tables. Next: audit and build `awards`, after fixing the 2 GB string-offset risk in `load_raw`.
 
 ## 2026-10-29
 - Works schema proposal drafted (in chat, not yet in `schema-oct-2026.md`) from `audit_works.log`; two numbers
