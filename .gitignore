@@ -138,3 +138,4 @@ data/
 .DS_Store
 notebooks/dask-worker-space/
 .ruff_cache/
+notebooks/*.csv
