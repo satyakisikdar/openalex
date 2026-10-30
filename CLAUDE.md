@@ -22,7 +22,7 @@ those into **optimized** Parquet (numeric IDs, tight types, brotli) with
 
 | Trigger | Guide |
 |---|---|
-| Writing or changing code, tests, deps, tooling | `.claude/docs/dev.md` |
+| Writing or changing code, tests, deps, tooling; shell commands on the Mac or Yoda (aliases, zsh) | `.claude/docs/dev.md` |
 | Running anything on Yoda, touching outputs, long jobs, `flatten_openalex_files.py` | `.claude/docs/data.md` |
 | Reading OpenAlex Parquet, building or changing optimized Parquet tables | `.claude/docs/parquet.md` |
 | Committing, branching, merging, pushing | `.claude/docs/git.md` |
