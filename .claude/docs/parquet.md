@@ -106,6 +106,9 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   `raw_affiliation_string` = the raw strings joined by `;`.
 - The old flattener skipped `is_xpac` works and rows referencing deleted or merged IDs.
 - **Decided 2026-10-29:** keep skipping `is_xpac` works and all their child rows; log the count.
+- **Decided 2026-10-29:** `works_authorships` has no lineage expansion: one row per work, author, and named
+  institution. `institution_lineage_level` and `assigned_institution` are dropped (derivable via
+  `institutions_lineage`; list order was not depth).
 
 ## Column names
 - Match the old flattener's names as exactly as possible: table names and `columns` lists in `csv_files`
