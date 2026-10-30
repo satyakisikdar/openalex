@@ -175,6 +175,7 @@ def test_every_table_has_a_description_and_readme_renders(tmp_path) -> None:
             'source': {'snapshot': '2026-10-14'},
             'schema': [
                 {'name': 'domain_id', 'type': 'uint8'},
+                {'name': 'v', 'type': 'float'},
                 {'name': 'k', 'type': 'dictionary<values=string, indices=int32, ordered=0>'},
             ],
         }
@@ -182,4 +183,5 @@ def test_every_table_has_a_description_and_readme_renders(tmp_path) -> None:
     op.write_readme(tmp_path)
     text = (tmp_path / 'README.md').read_text()
     assert '## topics' in text and '| `domain_id` | uint8 |' in text and 'string (dictionary-encoded)' in text
+    assert '| `v` | float32 |' in text
     assert '2026-10-14' in text and not list(tmp_path.glob('README.md.partial-*'))

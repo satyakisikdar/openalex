@@ -488,7 +488,9 @@ ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[s
 
 
 def _type_name(t: str) -> str:
-    return 'string (dictionary-encoded)' if t.startswith('dictionary<values=string') else t
+    if t.startswith('dictionary<values=string'):
+        return 'string (dictionary-encoded)'
+    return {'float': 'float32', 'double': 'float64', 'date32[day]': 'date32'}.get(t, t)
 
 
 def write_readme(out_root: Path) -> None:
