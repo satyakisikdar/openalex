@@ -64,7 +64,30 @@ Top-level columns are identical across every file of each table. "New" = no old 
   `sources_topic_share` (2 files each). Largest: `sources_topic_share` 20.6 MB, `sources_topics` 13.7 MB,
   `sources_counts_by_year` 11.2 MB, `institutions_topic_share` 10.2 MB. Revisit sizes for authors and works.
 
- (resolved 2026-10-28)
+## Deleted and merged IDs (snapshot 2026-10-14)
+- Placeholder IDs for deleted entities (`src.optimize.DELETED_IDS`): work 4285719527, author 5317838346,
+  institution 4389424196, source 4317411217. Only the institution one occurs: it is a real row in raw
+  institutions (dropped from 6 tables, 59 rows) and is referenced by 14 author affiliations and 1 last-known
+  institution (dropped). The writers drop these rows from every table.
+- `openalex-snapshot/data/merged_ids/*` directories exist but are empty. The Parquet snapshot ships one list:
+  `works/deleted_ids.csv.gz` (71,528,592 work IDs with `deleted_date`), to apply when building works.
+
+## Benchmarks: authors (oct-2026, built 2026-10-29)
+- Capped DuckDB (60 GB, 16 threads) + pyarrow writers. Single writer: 19 min for concepts + authors (writing
+  was the bottleneck: one thread at 100%, DuckDB idle). 8 parallel writers: about 7 min. Peak memory about
+  14 GB; nothing spilled. Output 12.34 GB for the 10 authors tables.
+- Codec test on a 5M-row authors file: brotli 122.9 MB (14.2 s write), zstd-9 130.0 MB (4.6 s), zstd-3
+  141.0 MB (1.6 s), snappy 218.6 MB (1.1 s). Brotli kept by user decision.
+- The streaming writer re-cuts batches so file i holds exactly rows [i*5M, (i+1)*5M); a dry run built with the
+  older writer is compared by row count + `sum(hash(cols))` per table instead of file checksums.
+- Size vs raw (from Parquet metadata and manifests): raw authors 50.62 GB (snappy; 100.49 GB uncompressed) vs
+  optimized 12.34 GB (brotli), 24%. Each table as a share of its raw source columns: authors 52%,
+  display_name_alternatives 65%, observed_orcids 58%, affiliations 19%, last_known_institutions 13%, topics 33%,
+  topic_share 40%, concepts 53%, sources 7% (21.48 GB of nested source details -> 1.43 GB of IDs),
+  counts_by_year 81%. Dropped raw columns: 4.44 GB (raw_author_names 2.55, ids 1.07, works_api_url 0.82).
+  Savings come from dropping nested copies of other entities, numeric IDs, and brotli vs snappy.
+
+## Yoda env drift (resolved 2026-10-28)
 - Local `pyproject.toml` now matches Yoda's env (Python >=3.12, seaborn, requests, jupyterlab, ipykernel,
   brotli); code synced and `uv sync` run on Yoda 2026-10-29 (3.12.11 venv kept).
 
