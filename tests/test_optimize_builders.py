@@ -159,3 +159,27 @@ def test_build_topics() -> None:
     assert out['topics_keywords'].column('keyword_id').to_pylist() == ['low-cost-smart-devices']
     assert out['subfields'].column('field_id').to_pylist() == [33]
     assert out['domains'].column('wikidata').to_pylist() == [9418]
+
+
+def test_every_table_has_a_description_and_readme_renders(tmp_path) -> None:
+    assert set(op.DESCRIPTIONS) == set(op.SCHEMAS)
+    import json
+
+    for name in ('topics', 'domains'):
+        (tmp_path / name).mkdir()
+        manifest = {
+            'table': name,
+            'rows': 4,
+            'bytes': 1000,
+            'files': [{}],
+            'source': {'snapshot': '2026-10-14'},
+            'schema': [
+                {'name': 'domain_id', 'type': 'uint8'},
+                {'name': 'k', 'type': 'dictionary<values=string, indices=int32, ordered=0>'},
+            ],
+        }
+        (tmp_path / name / '_manifest.json').write_text(json.dumps(manifest))
+    op.write_readme(tmp_path)
+    text = (tmp_path / 'README.md').read_text()
+    assert '## topics' in text and '| `domain_id` | uint8 |' in text and 'string (dictionary-encoded)' in text
+    assert '2026-10-14' in text and not list(tmp_path.glob('README.md.partial-*'))

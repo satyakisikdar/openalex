@@ -10,6 +10,7 @@ Spec: .claude/docs/schema-oct-2026.md. Rules: .claude/docs/parquet.md. Run on Yo
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 from collections.abc import Callable
@@ -161,6 +162,41 @@ SCHEMAS: dict[str, pa.Schema] = {
     'fields_display_name_alternatives': _schema(('field_id', U8), ('display_name_alternative', STR)),
     'domains': _schema(('domain_id', U8), ('domain_name', STR), ('description', STR), COUNTS, WIKI, DATES),
     'domains_display_name_alternatives': _schema(('domain_id', U8), ('display_name_alternative', STR)),
+}
+
+
+DESCRIPTIONS: dict[str, str] = {
+    'institutions': 'One row per institution: name, ROR, country, type, status, and work and citation counts.',
+    'institutions_ids': 'External identifiers per institution: GRID, Wikipedia (`lang:Title`), and Wikidata Q-number.',
+    'institutions_geo': 'Location per institution: city, GeoNames city ID, region, country, latitude, and longitude.',
+    'institutions_associated_institutions': 'Related institutions, one row per pair, with the relationship type.',
+    'institutions_counts_by_year': 'Works, open-access works, and citations per institution per year.',
+    'institutions_display_name_acronyms': 'Acronyms of each institution, one row per acronym.',
+    'institutions_display_name_alternatives': 'Alternative names of each institution, one row per name.',
+    'institutions_lineage': 'Ancestor institutions of each institution (the institution itself is excluded).',
+    'institutions_roles': 'Other OpenAlex entities (funder or publisher) that represent the same organization.',
+    'institutions_repositories': 'Repository sources hosted by each institution.',
+    'institutions_topics': 'Topics of each institution with work counts and topic scores.',
+    'institutions_topic_share': 'Share of each topic in the work of each institution.',
+    'sources': 'One row per source (journal, repository, conference, ...): host, open-access flags, APC, and counts.',
+    'sources_counts_by_year': 'Works, open-access works, and citations per source per year.',
+    'sources_issn': 'ISSNs of each source, one row per ISSN.',
+    'sources_host_organization_lineage': 'Parent organizations of each source host (the host itself is excluded).',
+    'sources_listed_in': 'Lists and indexes each source appears in (for example `cwts-core`).',
+    'sources_alternate_titles': 'Alternative titles of each source.',
+    'sources_apc_prices': 'Article processing charges per source in their original currencies.',
+    'sources_apc_usd_by_year': 'Article processing charge per source per year, in US dollars.',
+    'sources_societies': 'Societies associated with each source, with URL and organization name.',
+    'sources_topics': 'Topics of each source with work counts.',
+    'sources_topic_share': 'Share of each topic in the work of each source.',
+    'topics': 'One row per topic with description, counts, and its subfield, field, and domain.',
+    'topics_keywords': 'Keywords of each topic with keyword slug and score.',
+    'subfields': 'One row per subfield with its field and domain.',
+    'subfields_display_name_alternatives': 'Alternative names of each subfield.',
+    'fields': 'One row per field with its domain.',
+    'fields_display_name_alternatives': 'Alternative names of each field.',
+    'domains': 'One row per domain (the top level of the topic hierarchy).',
+    'domains_display_name_alternatives': 'Alternative names of each domain.',
 }
 
 
@@ -451,16 +487,74 @@ ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[s
 }
 
 
+def _type_name(t: str) -> str:
+    return 'string (dictionary-encoded)' if t.startswith('dictionary<values=string') else t
+
+
+def write_readme(out_root: Path) -> None:
+    """Render `<out_root>/README.md` from every table's `_manifest.json` (atomic replace)."""
+    manifests = [json.loads(p.read_text()) for p in sorted(out_root.glob('*/_manifest.json'))]
+    if not manifests:
+        raise SystemExit(f'No tables under {out_root}; build them before the README.')
+    missing = [m['table'] for m in manifests if m['table'] not in DESCRIPTIONS]
+    if missing:
+        raise SystemExit(f'No description for {missing}; add them to DESCRIPTIONS in {__file__}.')
+    snapshot = manifests[0]['source']['snapshot']
+    lines = [
+        f'# OpenAlex optimized Parquet: {out_root.name}',
+        '',
+        f'Built from the OpenAlex Parquet snapshot dated {snapshot} by `preprocessing/optimize_parquet.py`. '
+        'This file is generated; do not edit it by hand.',
+        '',
+        '- One directory per table, holding `part-NNNNN.parquet` files (brotli) plus `_metadata`, '
+        '`_common_metadata`, and `_manifest.json`.',
+        "- Read a table with `pd.read_parquet(dir)`, `pq.read_table(dir)`, or DuckDB `read_parquet('dir/*.parquet')`.",
+        '- OpenAlex IDs keep only their number (`https://openalex.org/I123` is `123`). External IDs drop their URL '
+        'prefix: ROR, ORCID, and GRID are bare, Wikidata is the Q-number, and Wikipedia is `lang:Title`.',
+        '- Dates are dates only. Columns typed `string (dictionary-encoded)` read as `category` in pandas.',
+        '',
+        '| Table | Rows | Files | Size |',
+        '|---|---:|---:|---:|',
+    ]
+    lines += [
+        f'| [`{m["table"]}`](#{m["table"]}) | {m["rows"]:,} | {len(m["files"])} | {m["bytes"] / 1e6:,.1f} MB |'
+        for m in manifests
+    ]
+    for m in manifests:
+        lines += [
+            '',
+            f'## {m["table"]}',
+            '',
+            DESCRIPTIONS[m['table']],
+            '',
+            f'{m["rows"]:,} rows.',
+            '',
+            '| Column | Type |',
+            '|---|---|',
+        ]
+        lines += [f'| `{c["name"]}` | {_type_name(c["type"])} |' for c in m['schema']]
+    partial = out_root / f'README.md.partial-{os.getpid()}'
+    partial.write_text('\n'.join(lines) + '\n')
+    partial.replace(out_root / 'README.md')
+    log.info('wrote %s', out_root / 'README.md')
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--month', default='oct-2026', help='output dir name, e.g. oct-2026')
     parser.add_argument('--entities', nargs='+', choices=list(ENTITIES), default=list(ENTITIES))
     parser.add_argument('--dry-run', metavar='SCRATCH', type=Path, help='write under SCRATCH instead of the real root')
+    parser.add_argument('--readme-only', action='store_true', help='only regenerate README.md from the manifests')
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', stream=sys.stdout)
     exit_on_sigterm()
     log.info('START optimize_parquet %s', vars(args))
+
+    if args.readme_only:
+        write_readme((args.dry_run if args.dry_run else OUT_ROOT) / args.month)
+        log.info('END optimize_parquet ok: README only')
+        return
 
     snapshot = json.loads((RAW_ROOT / 'manifest.json').read_text())['date']
     max_year = int(snapshot[:4]) + 1
@@ -481,6 +575,7 @@ def main(argv: list[str] | None = None) -> None:
             o.read_check(target, SCHEMAS[name])
             log.info('checked %s with pyarrow, pandas, and duckdb', name)
     o.update_top_manifest(out_root, manifests)
+    write_readme(out_root)
     total = sum(m['rows'] for m in manifests.values())
     log.info('END optimize_parquet ok: %s tables, %s rows', len(manifests), f'{total:,}')
 
