@@ -26,6 +26,29 @@
 - `tests/`: fast, side-effect-free, for logic with branches (parsers, ID converters, guards).
 - Anything touching real snapshot data or a DB is a capped script run on Yoda, not a test.
 
+## Shell gotchas (Mac and Yoda; both use zsh)
+Hookify rules in `.claude/hookify.*.local.md` warn on or block several of these.
+- **Aliases** (both machines): `cp='cp -iv'`, `mv='mv -iv'`, `rm='rm -iv'`, so they prompt, and in a
+  non-interactive shell they do nothing. Use `command cp ...` or `\cp` (or `-f`) when overwriting is intended.
+  Yoda also has `df='df -h'`, `du='du -h'`, `ln='ln -v'`; Mac has `ls='ls -G'`.
+- **zsh does not word-split unquoted variables:** `F="a b"; md5 $F` passes one argument `a b`. Use an array
+  (`F=(a b); md5 $F`) or `${=F}`.
+- **zsh aborts the whole command on an unmatched glob** (`no matches found: requirements*.txt`), even inside
+  `ls ... 2>/dev/null`. Quote the glob, use the `(N)` qualifier (`*.csv.gz(N)`), or use `find`.
+- **`=word` expands to a command path** in zsh: `echo ===MAC` fails with `==MAC not found`. Quote words that
+  start with `=`.
+- **ssh runs remote commands in zsh too**, so the same rules apply inside `ssh yoda '...'`. Yoda's profile also
+  prints terminal escape codes (`[?1000l`) into stdout, so don't byte-compare ssh output: compare `md5sum`
+  hashes extracted with `grep -oE '^[0-9a-f]{32}'`.
+- **Nested quotes over ssh break `python -c`.** Write the script to a file in the scratchpad and run
+  `ssh yoda 'cd repo && uv run --no-sync python -' < script.py`.
+- **`pgrep -f` matches the caller's own command line** when the pattern text appears in it. Use
+  `ps -eo pid,cmd | grep '[a]udit_works'`.
+- **Mac `grep` is ugrep:** empty alternatives like `(a|)` fail with `empty (sub)expression`.
+- **`sed -i`:** Mac (BSD) needs `sed -i ''`; Yoda (GNU) takes `sed -i`.
+- **Pipelines report the last command's status:** `make check | tail -1 && next` runs `next` even when the
+  check fails. Use `set -o pipefail`.
+
 ## Legacy debt baseline
 Legacy files are exempt from lint/format/types via `pyproject.toml` (`per-file-ignores`, `format.exclude`,
 `tool.ty.overrides`). New files get no exemptions. When you clean a legacy file, remove it from those lists in
