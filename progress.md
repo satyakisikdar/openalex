@@ -1,6 +1,10 @@
 # Progress
 
 ## 2026-10-29
+- Works: raw schema checked (1,898 files, identical; differs from may-2025: `type_crossref` and grants gone,
+  `awards`/`funders`/`study_designs`/`has_content` new, `ids` is a map, abstracts are a JSON string). Decided:
+  keep skipping `is_xpac` works, no lineage expansion in `works_authorships`, `<entity>_id` names, `has_*` bool.
+  Audit running on Yoda (`/home/ssikdar/scratch/audit_works*.log`); schema proposal next, nothing written.
 - Built authors (10 tables, 2.58B rows) and concepts in `oct-2026/` with capped DuckDB (`ORDER BY ALL`, UTC dates)
   streaming into a pool of 8 parallel brotli writers; about 7 minutes. Real write matches the dry run by row
   count and per-row hash in every table. Rows referencing deleted-entity placeholder IDs are now dropped
