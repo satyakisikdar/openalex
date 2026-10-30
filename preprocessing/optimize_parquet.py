@@ -31,12 +31,13 @@ OUT_ROOT = Path('/data/shared/OpenAlex/processed-snapshots/parquet-files')
 MIN_FREE_BYTES = 200e9  # CLAUDE.md: stop if a write would leave less than ~200 GB free
 YEAR_MIN = 1500
 
-I64, U8, U16, U32, F32, STR, BOOL = (
+I64, U8, U16, U32, F32, F64, STR, BOOL = (
     pa.int64(),
     pa.uint8(),
     pa.uint16(),
     pa.uint32(),
     pa.float32(),
+    pa.float64(),
     pa.string(),
     pa.bool_(),
 )
@@ -52,6 +53,7 @@ def _schema(*fields: tuple[str, pa.DataType] | list[tuple[str, pa.DataType]]) ->
 
 
 INST, SRC, AUTH, FUND = ('institution_id', I64), ('source_id', I64), ('author_id', I64), ('funder_id', I64)
+AWARD = ('award_id', I64)
 STATS = [('2yr_mean_citedness', F32), ('h_index', U16), ('i10_index', U32)]
 WIKI = [('wikidata', U32), ('wikipedia', STR)]
 
@@ -191,6 +193,46 @@ SCHEMAS: dict[str, pa.Schema] = {
     'funders_counts_by_year': _schema(
         FUND, ('year', U16), ('num_works', U32), ('num_oa_works', U32), ('num_citations', U32)
     ),
+    'awards': _schema(
+        AWARD,
+        ('award_name', STR),
+        ('description', STR),
+        ('funder_award_id', STR),
+        FUND,
+        ('unlinked_funder_name', STR),
+        ('amount', F64),
+        ('currency', DICT),
+        ('funding_type', DICT),
+        ('funder_scheme', DICT),
+        ('provenance', DICT),
+        ('start_date', DATE),
+        ('end_date', DATE),
+        ('start_year', U16),
+        ('end_year', U16),
+        ('primary_topic_id', U16),
+        ('primary_topic_score', F32),
+        ('parent_award_id', I64),
+        ('parent_relationship', DICT),
+        ('parent_asserted_by', DICT),
+        ('landing_page_url', STR),
+        ('doi', STR),
+        ('num_funded_outputs', U32),
+        DATES,
+    ),
+    'awards_investigators': _schema(
+        AWARD,
+        ('role', DICT),
+        ('given_name', STR),
+        ('family_name', STR),
+        ('orcid', STR),
+        ('role_start', DATE),
+        ('affiliation_name', STR),
+        ('affiliation_country', STR),
+        ('affiliation_id_type', DICT),
+        ('affiliation_id', STR),
+        ('affiliation_id_asserted_by', DICT),
+    ),
+    'awards_institutions': _schema(AWARD, INST),
     'authors': _schema(
         AUTH,
         ('author_name', STR),
@@ -255,6 +297,11 @@ DESCRIPTIONS: dict[str, str] = {
     'funders_alternate_titles': 'Alternative names of each funder, one row per name.',
     'funders_roles': 'Other OpenAlex entities (institution or publisher) that represent the same organization.',
     'funders_counts_by_year': 'Works, open-access works, and citations per funder per year (years up to 2030 kept).',
+    'awards': 'One row per award (grant): funder and its award number, amount, dates, type, topic, and parent award. '
+    '`unlinked_funder_name` names the funder only when it has no OpenAlex ID.',
+    'awards_investigators': 'Investigators of each award: role (`lead`, `co_lead`, `investigator`), name, ORCID, '
+    'and affiliation as reported by the funder.',
+    'awards_institutions': 'Institutions each award was made to.',
     'authors': 'One row per author: name, ORCID, and work and citation counts.',
     'authors_display_name_alternatives': 'Alternative names of each author, one row per name.',
     'authors_observed_orcids': 'Every ORCID observed for each author (includes the main `orcid`).',
@@ -661,6 +708,15 @@ create or replace macro oa_id(s, p, label) as case when s is null then null
 create or replace macro orcid_clean(s) as case when s is null then null
   when not starts_with(s, 'https://orcid.org/') then error('bad ORCID prefix: ' || s)
   when regexp_full_match(upper(substr(s, 19)), '{ORCID}') then upper(substr(s, 19)) else null end;
+create or replace macro orcid_any(s) as case
+  when regexp_full_match(upper(s), '(HTTPS?://ORCID\.ORG/)?({ORCID})') then regexp_extract(upper(s), '({ORCID})$', 1)
+  else null end;
+create or replace macro doi_clean(s) as case when s is null or s = '' then null
+  when regexp_full_match(s, '(https://doi\.org/|http://dx\.doi\.org/)?10\.[0-9]{{4,9}}/\S+')
+    then regexp_replace(s, '^(https://doi\.org/|http://dx\.doi\.org/)', '')
+  else error('bad DOI: ' || s) end;
+create or replace macro at_most_one(l, label) as case when len(l) > 1 then error(label || ' has more than one element')
+  else l[1] end;
 """
 
 
@@ -714,7 +770,8 @@ AUTHOR_LISTS = {  # output table -> raw list column, to log how many elements ea
 }
 
 
-def authors_connection(raw_glob: str) -> Any:
+def duckdb_connection(raw_glob: str) -> Any:
+    """Capped DuckDB with the macros and the raw table as view `a`."""
     import duckdb
 
     con = duckdb.connect(config=DUCKDB_CONFIG)
@@ -754,15 +811,11 @@ def log_author_cleanup(con: Any) -> dict[str, int]:
 
 
 def write_authors(out_root: Path, max_year: int, snapshot: str, raw_root: Path = RAW_ROOT) -> dict[str, dict[str, Any]]:
-    con = authors_connection(f"'{raw_root}/authors/*/*.parquet'")
+    con = duckdb_connection(f"'{raw_root}/authors/*/*.parquet'")
     raw_counts = log_author_cleanup(con)
     manifests = {}
     for name, sql in authors_sql(max_year).items():
-        target = out_root / name
-        reader = con.sql(sql).to_arrow_reader(1_000_000)  # streams; no extra copy
-        manifests[name] = o.write_batches_dir(
-            reader, SCHEMAS[name], target, source={'snapshot': snapshot, 'raw': ['authors']}
-        )
+        manifests[name] = _write_sql(con, name, sql, out_root, snapshot, 'authors')
         raw = raw_counts.get(
             AUTHOR_LISTS.get(name, '') or ('affiliation_years' if name == 'authors_affiliations' else 'authors')
         )
@@ -773,9 +826,75 @@ def write_authors(out_root: Path, max_year: int, snapshot: str, raw_root: Path =
             f'{manifests[name]["rows"]:,}',
             f'{raw - manifests[name]["rows"]:,}',
         )
-        o.read_check(target, SCHEMAS[name])
-        log.info('checked %s with pyarrow, pandas, and duckdb', name)
     return manifests
+
+
+def _write_sql(con: Any, name: str, sql: str, out_root: Path, snapshot: str, raw_name: str) -> dict[str, Any]:
+    """Stream one SELECT into a table dir, then check it with all three readers."""
+    target = out_root / name
+    reader = con.sql(sql).to_arrow_reader(1_000_000)  # streams; no extra copy
+    manifest = o.write_batches_dir(reader, SCHEMAS[name], target, source={'snapshot': snapshot, 'raw': [raw_name]})
+    o.read_check(target, SCHEMAS[name])
+    log.info('checked %s with pyarrow, pandas, and duckdb', name)
+    return manifest
+
+
+# Investigators: lead, co-lead, then list entries that are not the award's lead or co-lead. Structs are compared with
+# `is not distinct from` (a struct `=` is NULL when a nested field is NULL). DISTINCT on the whole struct removes
+# exact repeats in the list before any field is cleaned, so cleaning can't merge rows.
+AWARD_PEOPLE = """select distinct p.id, p.role, p.i from (
+    select id, 'lead' as role, lead_investigator as i from a where lead_investigator is not null
+    union all select id, 'co_lead', co_lead_investigator from a where co_lead_investigator is not null
+    union all select a.id, 'investigator', x.i from a, unnest(a.investigators) x(i)) p
+  join a on a.id = p.id
+  where p.role <> 'investigator' or not (p.i is not distinct from a.lead_investigator
+    or p.i is not distinct from a.co_lead_investigator)"""
+
+
+def awards_sql() -> dict[str, str]:
+    """One SELECT per output table over the raw view `a`, columns in spec order (spec: schema-oct-2026.md)."""
+    gid = "oa_id(id, 'G', 'award id')"
+    parent = "at_most_one(parent_awards, 'parent_awards')"
+    aff_id = "at_most_one(i.affiliation.ids, 'affiliation.ids')"
+    return {
+        'awards': f"""select {gid} award_id, nullif(display_name, '') award_name, nullif(description, '') description,
+            nullif(funder_award_id, '') funder_award_id, oa_id(funder.id, 'F', 'funder id') funder_id,
+            case when funder.id is null then nullif(funder.display_name, '') end unlinked_funder_name,
+            amount, nullif(currency, '') currency, nullif(funding_type, '') funding_type,
+            nullif(funder_scheme, '') funder_scheme, provenance, start_date, end_date,
+            start_year::usmallint start_year, end_year::usmallint end_year,
+            oa_id(at_most_one(topics, 'topics').id, 'T', 'topic id')::usmallint primary_topic_id,
+            primary_topic.score::float primary_topic_score,
+            oa_id({parent}.id, 'G', 'parent award id') parent_award_id, {parent}.relationship parent_relationship,
+            {parent}.asserted_by parent_asserted_by, nullif(landing_page_url, '') landing_page_url, doi_clean(doi) doi,
+            funded_outputs_count::uinteger num_funded_outputs, updated_date::date updated_date,
+            created_date::date created_date
+            from a order by all""",
+        'awards_investigators': f"""select {gid} award_id, role, nullif(i.given_name, '') given_name,
+            nullif(i.family_name, '') family_name, orcid_any(i.orcid) orcid, i.role_start role_start,
+            nullif(i.affiliation.name, '') affiliation_name, nullif(i.affiliation.country, '') affiliation_country,
+            lower({aff_id}.type) affiliation_id_type, nullif({aff_id}.id, '') affiliation_id,
+            {aff_id}.asserted_by affiliation_id_asserted_by
+            from ({AWARD_PEOPLE}) order by all""",
+        'awards_institutions': f"""select distinct {gid} award_id, oa_id(x.id, 'I', 'institution id') institution_id
+            from a, unnest(institution_awarded) t(x) order by all""",
+    }
+
+
+def write_awards(out_root: Path, max_year: int, snapshot: str, raw_root: Path = RAW_ROOT) -> dict[str, dict[str, Any]]:
+    del max_year  # award dates and years are kept as the source reported them (spec Decision 4)
+    con = duckdb_connection(f"'{raw_root}/awards/*/*.parquet'")
+    row = con.execute(
+        f"""select (select count(*) from a), (select count(*) from ({AWARD_PEOPLE})),
+        (select count(*) from ({AWARD_PEOPLE}) where nullif(i.orcid, '') is not null and orcid_any(i.orcid) is null),
+        (select count(*) from a where primary_topic is distinct from topics[1])"""
+    ).fetchall()  # fetchall, not fetchone: an unfinished result blocks the connection
+    n, people, bad_orcid, topic_ne = row[0]
+    log.info('awards: %s raw rows, %s investigator rows after merging lead and co-lead', f'{n:,}', f'{people:,}')
+    log.info('awards_investigators.orcid: %s invalid values stored as null', f'{bad_orcid:,}')
+    if topic_ne:
+        raise SystemExit(f'awards: primary_topic differs from topics[1] in {topic_ne:,} rows; re-check the spec.')
+    return {name: _write_sql(con, name, sql, out_root, snapshot, 'awards') for name, sql in awards_sql().items()}
 
 
 ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[str, pa.Table]]]] = {
@@ -785,7 +904,7 @@ ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[s
     'concepts': (['concepts'], lambda r, y: build_concepts(r['concepts'])),
     'funders': (['funders'], lambda r, y: build_funders(r['funders'], y)),
 }
-STREAMED = ['authors']  # built with DuckDB, see write_authors
+STREAMED: dict[str, Callable[..., dict[str, dict[str, Any]]]] = {'authors': write_authors, 'awards': write_awards}
 
 
 def _type_name(t: str) -> str:
@@ -871,7 +990,7 @@ def main(argv: list[str] | None = None) -> None:
     manifests = {}
     for entity in args.entities:
         if entity in STREAMED:
-            manifests |= write_authors(out_root, max_year, snapshot)
+            manifests |= STREAMED[entity](out_root, max_year, snapshot)
             continue
         raw_names, build = ENTITIES[entity]
         raws = {n: o.load_raw(RAW_ROOT, n) for n in raw_names}

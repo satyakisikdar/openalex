@@ -336,7 +336,9 @@ it needs building for that join.
 
 ---
 
-# Awards (proposed 2026-10-30)
+# Awards (approved 2026-10-30)
+
+All 6 decisions approved as recommended.
 
 New entity (the old flattener had no awards table). Raw: 17,927,707 awards in 230 files (5.1 GB; descriptions
 alone are 4.6 GB), identical schema in every file, IDs unique (`G42` to `G9001171187`). Audit logs:

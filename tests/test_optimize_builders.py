@@ -1,6 +1,6 @@
 """Builders on one synthetic raw row per entity: outputs match the declared schemas and drop rules hold."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pyarrow as pa
 
@@ -351,3 +351,102 @@ def test_build_funders_fails_when_doi_is_not_derivable() -> None:
     bad['ids'] = bad['ids'] | {'doi': '10.13039/1'}
     with pytest.raises(SystemExit, match='doi'):
         op.build_funders(pa.Table.from_pylist([bad]), max_year=2027)
+
+
+def _award(n: int, **over: object) -> dict:
+    person = {
+        'given_name': 'Ada',
+        'family_name': 'Lovelace',
+        'orcid': 'http://orcid.org/0000-0002-1825-009x',
+        'role_start': None,
+        'affiliation': {
+            'name': 'Inst',
+            'country': 'CANADA',
+            'ids': [{'id': 'https://ror.org/048rgv164', 'type': 'ROR', 'asserted_by': 'publisher'}],
+        },
+    }
+    other = person | {'given_name': '', 'family_name': 'B', 'orcid': '', 'affiliation': None}
+    topic = TOPIC | {'score': 0.75}
+    row = {
+        'id': f'{OA}G{n}',
+        'display_name': '',
+        'description': 'd',
+        'funder_award_id': f'R01-{n}',
+        'amount': 1.5,
+        'currency': 'USD',
+        'funder': {'id': None, 'display_name': 'Canada Foundation for Innovation', 'ror_id': None, 'doi': None},
+        'funding_type': 'grant',
+        'funder_scheme': 'R01',
+        'provenance': 'nih_exporter',
+        'start_date': date(2020, 1, 1),
+        'end_date': date(3923, 4, 14),  # odd source dates are kept (Decision 4)
+        'start_year': 2020,
+        'end_year': 3923,
+        'lead_investigator': person,
+        'co_lead_investigator': None,
+        'investigators': [person, other, other],  # repeats the lead, and itself
+        'landing_page_url': 'https://x',
+        'doi': 'http://dx.doi.org/10.1000/ABC',
+        'works_api_url': 'x',
+        'created_date': TS,
+        'funded_outputs': [f'{OA}W1'],
+        'funded_outputs_count': 1,
+        'primary_topic': topic,
+        'topics': [topic],
+        'institution_awarded': [
+            {
+                'id': f'{OA}I5',
+                'display_name': 'i',
+                'ror': None,
+                'country_code': None,
+                'type': None,
+                'lineage': [f'{OA}I5'],
+            }
+        ],
+        'parent_awards': [
+            {
+                'id': f'{OA}G9',
+                'display_name': 'p',
+                'funder': {'id': None, 'display_name': None},
+                'relationship': 'component',
+                'asserted_by': 'funder',
+            }
+        ],
+        'sub_awards': [],
+        'sub_awards_count': 0,
+        'updated_date': TS,
+    }
+    for col in ('institution_awarded', 'primary_topic', 'topics', 'parent_awards', 'sub_awards'):
+        row[f'{col}_full'] = row[col]
+    return row | over
+
+
+def test_write_awards_duckdb_path(tmp_path, monkeypatch) -> None:
+    import pyarrow.parquet as pq
+
+    part = tmp_path / 'raw' / 'awards' / 'updated_date=2026-04-09'
+    part.mkdir(parents=True)
+    linked = {'id': f'{OA}F7', 'display_name': 'NIH', 'ror_id': None, 'doi': None}
+    rows = [_award(2, funder=linked, parent_awards=[], parent_awards_full=[]), _award(1)]
+    pq.write_table(pa.Table.from_pylist(rows), part / 'part_0000.parquet')
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'temp_directory', str(tmp_path / 'tmp'))
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'memory_limit', '1GB')
+    out = tmp_path / 'oct-2026'
+    manifests = op.write_awards(out, 2027, '2026-10-14', raw_root=tmp_path / 'raw')
+    assert set(manifests) == {n for n in op.SCHEMAS if n.startswith('awards')}
+    a = pq.read_table(out / 'awards').to_pylist()
+    assert [r['award_id'] for r in a] == [1, 2] and a[0]['award_name'] is None and a[0]['doi'] == '10.1000/ABC'
+    assert a[0]['unlinked_funder_name'] == 'Canada Foundation for Innovation' and a[0]['funder_id'] is None
+    assert a[1]['funder_id'] == 7 and a[1]['unlinked_funder_name'] is None
+    assert a[0]['parent_award_id'] == 9 and a[1]['parent_award_id'] is None and a[0]['primary_topic_id'] == 10055
+    assert a[0]['end_date'].isoformat() == '3923-04-14' and a[0]['num_funded_outputs'] == 1
+    inv = [r for r in pq.read_table(out / 'awards_investigators').to_pylist() if r['award_id'] == 1]
+    assert [(r['role'], r['given_name'], r['orcid']) for r in inv] == [
+        ('investigator', None, None),
+        ('lead', 'Ada', '0000-0002-1825-009X'),
+    ]
+    assert inv[1]['affiliation_id_type'] == 'ror' and inv[1]['affiliation_id'] == 'https://ror.org/048rgv164'
+    assert pq.read_table(out / 'awards_institutions').to_pylist() == [
+        {'award_id': 1, 'institution_id': 5},
+        {'award_id': 2, 'institution_id': 5},
+    ]
