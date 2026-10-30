@@ -2622,6 +2622,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "brotli" },
+    { name = "duckdb" },
     { name = "ipykernel" },
     { name = "jupyterlab" },
     { name = "orjson" },
@@ -2639,7 +2640,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "duckdb" },
     { name = "pytest" },
     { name = "ty" },
 ]
@@ -2647,6 +2647,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "brotli", specifier = ">=1.1.0" },
+    { name = "duckdb", specifier = ">=2.0.0" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "jupyterlab", specifier = ">=4.4.4" },
     { name = "orjson", specifier = ">=3.11.5" },
@@ -2664,7 +2665,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "duckdb", specifier = ">=2.0.0" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ty", specifier = ">=0.0.94" },
 ]

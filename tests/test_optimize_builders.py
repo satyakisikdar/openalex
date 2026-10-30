@@ -185,3 +185,107 @@ def test_every_table_has_a_description_and_readme_renders(tmp_path) -> None:
     assert '## topics' in text and '| `domain_id` | uint8 |' in text and 'string (dictionary-encoded)' in text
     assert '| `v` | float32 |' in text
     assert '2026-10-14' in text and not list(tmp_path.glob('README.md.partial-*'))
+
+
+def _author(n: int, **over: object) -> dict:
+    inst = {
+        'id': f'{OA}I{n}',
+        'ror': 'https://ror.org/0013ka569',
+        'display_name': 'i',
+        'country_code': 'NO',
+        'type': 'company',
+        'lineage': [f'{OA}I{n}'],
+    }
+    src = {
+        'id': f'{OA}S{n}',
+        'display_name': 's',
+        'issn_l': None,
+        'issn': ['1'],
+        'is_oa': True,
+        'is_in_doaj': False,
+        'is_core': True,
+        'listed_in': ['x'],
+        'host_organization': None,
+        'host_organization_name': None,
+        'host_organization_lineage': ['y'],
+        'host_organization_lineage_names': ['z'],
+        'type': 'journal',
+    }
+    row = {
+        'id': f'{OA}A{n}',
+        'display_name': f'Author {n}',
+        'display_name_alternatives': [f'Author {n}', f'A. {n}'],
+        'raw_author_names': [f'Author {n}', f'A. {n}'],
+        'full_name': f'Author {n}',
+        'orcid': 'https://orcid.org/0000-0002-1825-009x',
+        'observed_orcids': ['https://orcid.org/0000-0002-1825-009x', 'https://orcid.org/0000-0002-1825-009X'],
+        'works_count': 3,
+        'cited_by_count': 4,
+        'summary_stats': STATS,
+        'ids': {'openalex': f'{OA}A{n}', 'orcid': None, 'observed_orcids': ['x']},
+        'affiliations': [{'institution': inst, 'years': [2020, 2025002]}],
+        'last_known_institutions': [inst],
+        'topics': [TOPIC | {'count': 4}],
+        'topic_share': [TOPIC | {'value': 0.1}],
+        'x_concepts': [
+            {'id': f'{OA}C41008148', 'wikidata': 'w', 'display_name': 'cs', 'level': 0, 'score': 0.5, 'count': 2}
+        ],
+        'sources': [src, src],  # real data repeats a source per author
+        'counts_by_year': CBY,
+        'works_api_url': 'x',
+        'updated_date': datetime(2026, 4, 9, 3, 0, tzinfo=UTC),  # still 2026-04-08 in US time zones
+        'created_date': None,
+    }
+    return row | over
+
+
+def test_write_authors_duckdb_path(tmp_path, monkeypatch) -> None:
+    import pyarrow.parquet as pq
+
+    part = tmp_path / 'raw' / 'authors' / 'updated_date=2026-04-09'
+    part.mkdir(parents=True)
+    rows = [
+        _author(2),
+        _author(
+            1, orcid='https://orcid.org/0000-0001-7221-230', observed_orcids=['https://orcid.org/0000-0001-7221-230']
+        ),
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), part / 'part_0000.parquet')
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'temp_directory', str(tmp_path / 'tmp'))
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'memory_limit', '1GB')
+    out = tmp_path / 'oct-2026'
+    manifests = op.write_authors(out, 2027, '2026-10-14', raw_root=tmp_path / 'raw')  # runs read_check on each table
+    assert set(manifests) == {n for n in op.SCHEMAS if n.startswith('authors')}
+    authors = pq.read_table(out / 'authors').to_pylist()
+    assert [a['author_id'] for a in authors] == [1, 2]
+    assert [a['orcid'] for a in authors] == [None, '0000-0002-1825-009X']  # truncated -> null, x -> X
+    assert authors[0]['updated_date'].isoformat() == '2026-04-09'  # UTC day, whatever the local time zone
+    assert pq.read_table(out / 'authors_observed_orcids').to_pylist() == [
+        {'author_id': 2, 'orcid': '0000-0002-1825-009X'}
+    ]
+    assert pq.read_table(out / 'authors_affiliations').column('year').to_pylist() == [2020, 2020]
+    assert pq.read_table(out / 'authors_sources').to_pylist() == [
+        {'author_id': 1, 'source_id': 1},
+        {'author_id': 2, 'source_id': 2},
+    ]
+    assert pq.read_table(out / 'authors_counts_by_year').column('year').to_pylist() == [2024, 2024]
+
+
+def test_build_concepts() -> None:
+    row = {
+        'id': f'{OA}C41008148',
+        'display_name': 'Computer science',
+        'level': 0,
+        'description': 'd',
+        'wikidata': 'https://www.wikidata.org/wiki/Q21198',
+        'image_url': None,
+        'image_thumbnail_url': None,
+        'works_count': 1,
+        'cited_by_count': 2,
+        'ids': {'wikipedia': 'https://en.wikipedia.org/wiki/Computer_science'},
+        'updated_date': TS,
+        'created_date': TS,
+    }
+    out = op.build_concepts(pa.Table.from_pylist([row]))
+    _check(out)
+    assert out['concepts'].to_pylist()[0]['wikidata'] == 21198

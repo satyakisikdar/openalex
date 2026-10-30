@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import shutil
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -211,6 +212,62 @@ def load_raw(root: Path, entity: str) -> pa.Table:
     return table
 
 
+def _start_partial(target: Path) -> Path:
+    parent = target.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    # ponytail: one writer per table; leftovers from killed runs are removed. A kill between the two renames
+    # in _finish below leaves only `<target>.old-<pid>`; re-running rebuilds the table.
+    for stale in [*parent.glob(f'{target.name}.partial-*'), *parent.glob(f'{target.name}.old-*')]:
+        shutil.rmtree(stale)
+    partial = parent / f'{target.name}.partial-{os.getpid()}'
+    partial.mkdir()
+    return partial
+
+
+def _finish(partial: Path, target: Path, schema: pa.Schema, names: list[str], source: dict[str, Any]) -> dict[str, Any]:
+    """Write `_metadata`, `_common_metadata`, `_manifest.json` for the part files, then swap into `target`."""
+    collector, files = [], []
+    for name in names:
+        md = pq.read_metadata(partial / name)
+        md.set_file_path(name)
+        collector.append(md)
+        files.append(
+            {
+                'name': name,
+                'rows': md.num_rows,
+                'bytes': (partial / name).stat().st_size,
+                'row_groups': md.num_row_groups,
+            }
+        )
+    pq.write_metadata(schema, partial / '_common_metadata')
+    pq.write_metadata(schema, partial / '_metadata', metadata_collector=collector)
+    manifest = {
+        'table': target.name,
+        'rows': sum(f['rows'] for f in files),
+        'bytes': sum(f['bytes'] for f in files),
+        'files': files,
+        'schema': [{'name': f.name, 'type': str(f.type)} for f in schema],
+        'source': source,
+        'built_at': datetime.now(UTC).isoformat(timespec='seconds'),
+    }
+    (partial / '_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if target.exists():
+        old = target.parent / f'{target.name}.old-{os.getpid()}'
+        target.rename(old)
+        partial.rename(target)
+        shutil.rmtree(old)
+    else:
+        partial.rename(target)
+    log.info(
+        'wrote %s: %s rows, %s files, %.2f MB',
+        target.name,
+        f'{manifest["rows"]:,}',
+        len(files),
+        manifest['bytes'] / 1e6,
+    )
+    return manifest
+
+
 def write_table_dir(
     table: pa.Table,
     target: Path,
@@ -225,60 +282,65 @@ def write_table_dir(
     Built in `<target>.partial-<pid>/`, then swapped in. The old target is renamed aside before the swap and
     removed after, so it is never deleted first.
     """
-    parent = target.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    # ponytail: one writer per table; leftovers from killed runs are removed. A kill between the two renames
-    # below leaves only `<target>.old-<pid>`; re-running rebuilds the table.
-    for stale in [*parent.glob(f'{target.name}.partial-*'), *parent.glob(f'{target.name}.old-*')]:
-        shutil.rmtree(stale)
-
-    partial = parent / f'{target.name}.partial-{os.getpid()}'
+    partial = _start_partial(target)
     try:
-        partial.mkdir()
-        collector: list[pq.FileMetaData] = []
-        files: list[dict[str, Any]] = []
+        names = []
         for i, start in enumerate(range(0, max(table.num_rows, 1), rows_per_file)):
-            name = f'part-{i:05d}.parquet'
-            part = table.slice(start, rows_per_file)
+            names.append(f'part-{i:05d}.parquet')
             pq.write_table(
-                part, partial / name, compression='brotli', row_group_size=row_group_size, metadata_collector=collector
+                table.slice(start, rows_per_file),
+                partial / names[-1],
+                compression='brotli',
+                row_group_size=row_group_size,
             )
-            collector[-1].set_file_path(name)
-            files.append(
-                {
-                    'name': name,
-                    'rows': part.num_rows,
-                    'bytes': (partial / name).stat().st_size,
-                    'row_groups': collector[-1].num_row_groups,
-                }
-            )
-        pq.write_metadata(table.schema, partial / '_common_metadata')
-        pq.write_metadata(table.schema, partial / '_metadata', metadata_collector=collector)
-        manifest = {
-            'table': target.name,
-            'rows': table.num_rows,
-            'bytes': sum(f['bytes'] for f in files),
-            'files': files,
-            'schema': [{'name': f.name, 'type': str(f.type)} for f in table.schema],
-            'source': source,
-            'built_at': datetime.now(UTC).isoformat(timespec='seconds'),
-        }
-        (partial / '_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-
-        if target.exists():
-            old = parent / f'{target.name}.old-{os.getpid()}'
-            target.rename(old)
-            partial.rename(target)
-            shutil.rmtree(old)
-        else:
-            partial.rename(target)
+        return _finish(partial, target, table.schema, names, source)
     except BaseException:
         shutil.rmtree(partial, ignore_errors=True)
         raise
-    log.info(
-        'wrote %s: %s rows, %s files, %.2f MB', target.name, f'{table.num_rows:,}', len(files), manifest['bytes'] / 1e6
-    )
-    return manifest
+
+
+def write_batches_dir(
+    batches: Iterable[pa.RecordBatch],
+    schema: pa.Schema,
+    target: Path,
+    *,
+    source: dict[str, Any],
+    rows_per_file: int = 5_000_000,
+    row_group_size: int = 1_000_000,
+) -> dict[str, Any]:
+    """
+    Same layout and atomic swap as `write_table_dir`, for tables too big for memory: stream record batches
+    (cast to `schema`), rolling to a new part file every `rows_per_file` rows.
+    """
+    partial = _start_partial(target)
+    writer: pq.ParquetWriter | None = None
+    try:
+        names: list[str] = []
+        in_file = 0
+        for batch in batches:
+            if not batch.num_rows:
+                continue
+            arrays = [cast(batch.column(f.name), f.type, f'{target.name}.{f.name}') for f in schema]
+            batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
+            if writer is None or in_file >= rows_per_file:
+                if writer is not None:
+                    writer.close()
+                names.append(f'part-{len(names):05d}.parquet')
+                writer, in_file = pq.ParquetWriter(partial / names[-1], schema, compression='brotli'), 0
+            writer.write_batch(batch, row_group_size=row_group_size)
+            in_file += batch.num_rows
+        if writer is None:  # empty table: one empty file, like write_table_dir
+            names.append('part-00000.parquet')
+            pq.write_table(schema.empty_table(), partial / names[-1], compression='brotli')
+        else:
+            writer.close()
+            writer = None
+        return _finish(partial, target, schema, names, source)
+    except BaseException:
+        if writer is not None:
+            writer.close()
+        shutil.rmtree(partial, ignore_errors=True)
+        raise
 
 
 def update_top_manifest(root: Path, manifests: dict[str, dict[str, Any]]) -> None:
@@ -293,21 +355,30 @@ def update_top_manifest(root: Path, manifests: dict[str, dict[str, Any]]) -> Non
 
 
 def read_check(table_dir: Path, schema: pa.Schema) -> int:
-    """Read the table with pyarrow, pandas, and DuckDB; all must agree on rows and columns. Returns rows."""
-    import duckdb  # dev dependency; only needed for the check
+    """
+    Read the table with pyarrow, pandas, and DuckDB without materializing it: pyarrow schema and row counts
+    from every file's metadata, pandas on the first file, DuckDB count and columns over the whole table.
+    All must agree with each other and with `schema`. Returns rows.
+    """
+    import duckdb
     import pandas as pd
 
-    arrow = pq.read_table(table_dir)
-    if not arrow.schema.equals(schema, check_metadata=False):
-        raise SystemExit(f'{table_dir.name}: pyarrow schema differs from spec:\n{arrow.schema}\nvs\n{schema}')
-    frame = pd.read_parquet(table_dir)
+    files = sorted(table_dir.glob('part-*.parquet'))
+    for f in files:
+        if not pq.read_schema(f).equals(schema, check_metadata=False):
+            raise SystemExit(f'{table_dir.name}/{f.name}: schema differs from spec:\n{pq.read_schema(f)}\nvs\n{schema}')
+    if not pq.ParquetDataset(table_dir).schema.equals(schema, check_metadata=False):
+        raise SystemExit(f'{table_dir.name}: dataset schema differs from spec')
+    arrow_rows = sum(pq.read_metadata(f).num_rows for f in files)
+    first = pd.read_parquet(files[0])
     glob = f"read_parquet('{table_dir}/*.parquet')"
     con = duckdb.connect()
     duck_rows = con.execute(f'select count(*) from {glob}').fetchone()
     duck_cols = [row[0] for row in con.execute(f'describe select * from {glob}').fetchall()]
-    counts = (arrow.num_rows, len(frame), duck_rows[0] if duck_rows else None)
-    if len(set(counts)) != 1:
-        raise SystemExit(f'{table_dir.name}: row counts disagree (pyarrow, pandas, duckdb) = {counts}')
-    if list(frame.columns) != schema.names or duck_cols != schema.names:
-        raise SystemExit(f'{table_dir.name}: columns differ: pandas {list(frame.columns)}, duckdb {duck_cols}')
-    return arrow.num_rows
+    if duck_rows is None or duck_rows[0] != arrow_rows or len(first) != pq.read_metadata(files[0]).num_rows:
+        raise SystemExit(
+            f'{table_dir.name}: row counts disagree: pyarrow {arrow_rows}, duckdb {duck_rows}, pandas {len(first)}'
+        )
+    if list(first.columns) != schema.names or duck_cols != schema.names:
+        raise SystemExit(f'{table_dir.name}: columns differ: pandas {list(first.columns)}, duckdb {duck_cols}')
+    return arrow_rows

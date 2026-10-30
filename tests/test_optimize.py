@@ -112,3 +112,14 @@ def test_write_table_dir_swaps_and_passes_three_reader_check(tmp_path: Path) -> 
 
     o.update_top_manifest(target.parent, {'things': json.loads((target / '_manifest.json').read_text())})
     assert json.loads((target.parent / '_manifest.json').read_text())['tables']['things']['rows'] == 1
+
+
+def test_write_batches_dir_rolls_files_and_matches_table_layout(tmp_path: Path) -> None:
+    schema = pa.schema([('id', pa.int64()), ('name', pa.string())])
+    batches = [pa.record_batch({'id': pa.array([i, i + 1], pa.int32()), 'name': ['a', 'b']}) for i in (0, 2, 4)]
+    target = tmp_path / 'oct-2026' / 'big'
+    m = o.write_batches_dir(iter(batches), schema, target, source={}, rows_per_file=4, row_group_size=2)
+    assert [f['rows'] for f in m['files']] == [4, 2]  # rolled to a second file after 4 rows; int32 cast to int64
+    assert o.read_check(target, schema) == 6
+    empty = o.write_batches_dir(iter([]), schema, tmp_path / 'oct-2026' / 'empty', source={})
+    assert empty['rows'] == 0 and o.read_check(tmp_path / 'oct-2026' / 'empty', schema) == 0

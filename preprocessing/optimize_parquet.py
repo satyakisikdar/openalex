@@ -51,7 +51,7 @@ def _schema(*fields: tuple[str, pa.DataType] | list[tuple[str, pa.DataType]]) ->
     return pa.schema(flat)
 
 
-INST, SRC = ('institution_id', I64), ('source_id', I64)
+INST, SRC, AUTH = ('institution_id', I64), ('source_id', I64), ('author_id', I64)
 STATS = [('2yr_mean_citedness', F32), ('h_index', U16), ('i10_index', U32)]
 WIKI = [('wikidata', U32), ('wikipedia', STR)]
 
@@ -162,6 +162,39 @@ SCHEMAS: dict[str, pa.Schema] = {
     'fields_display_name_alternatives': _schema(('field_id', U8), ('display_name_alternative', STR)),
     'domains': _schema(('domain_id', U8), ('domain_name', STR), ('description', STR), COUNTS, WIKI, DATES),
     'domains_display_name_alternatives': _schema(('domain_id', U8), ('display_name_alternative', STR)),
+    'concepts': _schema(
+        ('concept_id', I64),
+        ('concept_name', STR),
+        ('level', U8),
+        ('description', STR),
+        ('wikidata', U32),
+        ('wikipedia', STR),
+        ('image_url', STR),
+        COUNTS,
+        DATES,
+    ),
+    'authors': _schema(
+        AUTH,
+        ('author_name', STR),
+        ('full_name', STR),
+        ('orcid', STR),
+        COUNTS,
+        ('2yr_mean_citedness', F32),
+        ('h_index', U16),
+        ('i10_index', U16),
+        DATES,
+    ),
+    'authors_display_name_alternatives': _schema(AUTH, ('display_name_alternative', STR)),
+    'authors_observed_orcids': _schema(AUTH, ('orcid', STR)),
+    'authors_affiliations': _schema(AUTH, ('institution_id', I64), ('year', U16)),
+    'authors_last_known_institutions': _schema(AUTH, ('institution_id', I64)),
+    'authors_topics': _schema(AUTH, ('topic_id', U16), ('num_works', U32)),
+    'authors_topic_share': _schema(AUTH, ('topic_id', U16), ('value', F32)),
+    'authors_concepts': _schema(AUTH, ('concept_id', I64), ('score', F32), ('num_works', U32)),
+    'authors_sources': _schema(AUTH, ('source_id', I64)),
+    'authors_counts_by_year': _schema(
+        AUTH, ('year', U16), ('num_works', U32), ('num_oa_works', U32), ('num_citations', U32)
+    ),
 }
 
 
@@ -197,6 +230,17 @@ DESCRIPTIONS: dict[str, str] = {
     'fields_display_name_alternatives': 'Alternative names of each field.',
     'domains': 'One row per domain (the top level of the topic hierarchy).',
     'domains_display_name_alternatives': 'Alternative names of each domain.',
+    'concepts': 'One row per concept (the legacy OpenAlex concept tagging, levels 0 to 5) with counts.',
+    'authors': 'One row per author: name, ORCID, and work and citation counts.',
+    'authors_display_name_alternatives': 'Alternative names of each author, one row per name.',
+    'authors_observed_orcids': 'Every ORCID observed for each author (includes the main `orcid`).',
+    'authors_affiliations': 'Institutions each author was affiliated with, one row per author, institution, and year.',
+    'authors_last_known_institutions': 'Institutions each author was last affiliated with.',
+    'authors_topics': 'Top topics of each author (at most 5) with work counts.',
+    'authors_topic_share': 'Share of each topic in the work of each author (at most 5).',
+    'authors_concepts': 'Top concepts of each author (at most 5) with score and work counts.',
+    'authors_sources': 'Sources each author has published in.',
+    'authors_counts_by_year': 'Works, open-access works, and citations per author per year.',
 }
 
 
@@ -480,11 +524,165 @@ def build_topics(raws: dict[str, pa.Table]) -> dict[str, pa.Table]:
     return out
 
 
+def build_concepts(raw: pa.Table) -> dict[str, pa.Table]:
+    """The concepts table only: every list and nested field is null in this snapshot."""
+    o.assert_unique(raw['id'], 'concepts.id')
+    cols = {
+        'concept_id': o.openalex_id(raw['id'], 'C', 'concepts.id'),
+        'concept_name': raw['display_name'],
+        'level': raw['level'],
+        'description': raw['description'],
+        'wikidata': o.wikidata(raw['wikidata'], 'concepts.wikidata'),
+        'wikipedia': o.wikipedia(_field(raw['ids'], 'wikipedia'), 'concepts.ids.wikipedia'),
+        'image_url': raw['image_url'],
+        'num_works': raw['works_count'],
+        'num_citations': raw['cited_by_count'],
+        'updated_date': raw['updated_date'],
+        'created_date': raw['created_date'],
+    }
+    return {'concepts': _conform('concepts', cols, ['concept_id'])}
+
+
+# Authors are too big for memory: capped DuckDB does the unnest, dedupe, and sort (spilling to disk), and pyarrow
+# writes the batches in the same layout as every other table. ORDER BY ALL gives a full, deterministic order.
+DUCKDB_CONFIG: dict[str, Any] = {
+    'memory_limit': '60GB',
+    'threads': 16,
+    'temp_directory': '/home/ssikdar/scratch/duckdb-tmp',
+}
+ORCID = r'[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X]'
+DUCKDB_MACROS = rf"""
+create or replace macro oa_id(s, p, label) as case when s is null then null
+  when regexp_full_match(s, 'https://openalex\.org/' || p || '[0-9]+')
+    then cast(regexp_extract(s, '([0-9]+)$', 1) as bigint)
+  else error('bad ' || label || ': ' || s) end;
+create or replace macro orcid_clean(s) as case when s is null then null
+  when not starts_with(s, 'https://orcid.org/') then error('bad ORCID prefix: ' || s)
+  when regexp_full_match(upper(substr(s, 19)), '{ORCID}') then upper(substr(s, 19)) else null end;
+"""
+
+
+def authors_sql(max_year: int) -> dict[str, str]:
+    """One SELECT per output table over the raw view `a`, columns in spec order."""
+    aid = "oa_id(id, 'A', 'author id')"
+    years = f'between {YEAR_MIN} and {max_year}'
+    return {
+        'authors': f"""select {aid} author_id, display_name author_name, full_name, orcid_clean(orcid) orcid,
+            works_count::uinteger num_works, cited_by_count::uinteger num_citations,
+            summary_stats."2yr_mean_citedness"::float "2yr_mean_citedness", summary_stats.h_index::usmallint h_index,
+            summary_stats.i10_index::usmallint i10_index, updated_date::date updated_date,
+            created_date::date created_date
+            from a order by all""",
+        'authors_display_name_alternatives': f"""select distinct {aid} author_id, unnest(display_name_alternatives)
+            display_name_alternative from a order by all""",
+        'authors_observed_orcids': f"""select distinct author_id, orcid_clean(o) orcid from
+            (select {aid} author_id, unnest(observed_orcids) o from a) where orcid_clean(o) is not null order by all""",
+        'authors_affiliations': f"""select distinct author_id, institution_id, year::usmallint as "year" from
+            (select author_id, oa_id(f.institution.id, 'I', 'affiliation institution id') institution_id,
+                    unnest(f.years) as "year" from (select {aid} author_id, unnest(affiliations) f from a))
+            where year {years} order by all""",
+        'authors_last_known_institutions': f"""select distinct author_id,
+            oa_id(k.id, 'I', 'last known institution id') institution_id
+            from (select {aid} author_id, unnest(last_known_institutions) k from a) order by all""",
+        'authors_topics': f"""select distinct author_id, oa_id(t.id, 'T', 'topic id')::usmallint topic_id,
+            t.count::uinteger num_works from (select {aid} author_id, unnest(topics) t from a) order by all""",
+        'authors_topic_share': f"""select distinct author_id, oa_id(t.id, 'T', 'topic id')::usmallint topic_id,
+            t.value::float as "value" from (select {aid} author_id, unnest(topic_share) t from a) order by all""",
+        'authors_concepts': f"""select distinct author_id, oa_id(c.id, 'C', 'concept id') concept_id,
+            c.score::float score,
+            c.count::uinteger num_works from (select {aid} author_id, unnest(x_concepts) c from a) order by all""",
+        'authors_sources': f"""select distinct author_id, oa_id(s.id, 'S', 'source id') source_id
+            from (select {aid} author_id, unnest(sources) s from a) order by all""",
+        'authors_counts_by_year': f"""select distinct author_id, c.year::usmallint as "year",
+            c.works_count::uinteger num_works,
+            c.oa_works_count::uinteger num_oa_works, c.cited_by_count::uinteger num_citations
+            from (select {aid} author_id, unnest(counts_by_year) c from a) where c.year {years} order by all""",
+    }
+
+
+AUTHOR_LISTS = {  # output table -> raw list column, to log how many elements each table dropped
+    'authors_display_name_alternatives': 'display_name_alternatives',
+    'authors_observed_orcids': 'observed_orcids',
+    'authors_last_known_institutions': 'last_known_institutions',
+    'authors_topics': 'topics',
+    'authors_topic_share': 'topic_share',
+    'authors_concepts': 'x_concepts',
+    'authors_sources': 'sources',
+    'authors_counts_by_year': 'counts_by_year',
+}
+
+
+def authors_connection(raw_glob: str) -> Any:
+    import duckdb
+
+    con = duckdb.connect(config=DUCKDB_CONFIG)
+    con.execute("set TimeZone='UTC'")  # timestamptz -> date must use UTC days, like the pyarrow tables
+    con.execute(DUCKDB_MACROS)
+    con.execute(f'create or replace temp view a as select * from read_parquet({raw_glob}, hive_partitioning=false)')
+    return con
+
+
+def log_author_cleanup(con: Any) -> dict[str, int]:
+    """Log raw element counts (for comparing with rows written) and every ORCID the cleanup changes."""
+    sums = ', '.join(f'sum(len({c})) "{c}"' for c in AUTHOR_LISTS.values())
+    row = con.execute(
+        f'select count(*) n, {sums}, (select sum(len(f.years)) from '
+        f'(select unnest(affiliations) f from a)) affiliation_years from a'
+    ).fetchone()
+    names = ['authors', *AUTHOR_LISTS.values(), 'affiliation_years']
+    raw_counts = dict(zip(names, row, strict=True))
+    log.info('authors raw element counts: %s', {k: f'{v:,}' for k, v in raw_counts.items()})
+    for col, sql in (
+        ('orcid', 'select orcid o from a'),
+        ('observed_orcids', 'select unnest(observed_orcids) o from a'),
+    ):
+        changed = con.execute(
+            f'select o, orcid_clean(o) from ({sql}) where o is not null and '
+            f'orcid_clean(o) is distinct from substr(o, 19)'
+        ).fetchall()
+        nulled = sorted(o for o, c in changed if c is None)
+        log.info(
+            'authors %s: %s values uppercased, %s invalid stored as null: %s',
+            col,
+            sum(c is not None for _, c in changed),
+            len(nulled),
+            nulled,
+        )
+    return raw_counts
+
+
+def write_authors(out_root: Path, max_year: int, snapshot: str, raw_root: Path = RAW_ROOT) -> dict[str, dict[str, Any]]:
+    con = authors_connection(f"'{raw_root}/authors/*/*.parquet'")
+    raw_counts = log_author_cleanup(con)
+    manifests = {}
+    for name, sql in authors_sql(max_year).items():
+        target = out_root / name
+        reader = con.sql(sql).to_arrow_reader(1_000_000)  # streams; no extra copy
+        manifests[name] = o.write_batches_dir(
+            reader, SCHEMAS[name], target, source={'snapshot': snapshot, 'raw': ['authors']}
+        )
+        raw = raw_counts.get(
+            AUTHOR_LISTS.get(name, '') or ('affiliation_years' if name == 'authors_affiliations' else 'authors')
+        )
+        log.info(
+            '%s: %s raw elements, %s rows written, %s removed (bad year, duplicate, or invalid ORCID)',
+            name,
+            f'{raw:,}',
+            f'{manifests[name]["rows"]:,}',
+            f'{raw - manifests[name]["rows"]:,}',
+        )
+        o.read_check(target, SCHEMAS[name])
+        log.info('checked %s with pyarrow, pandas, and duckdb', name)
+    return manifests
+
+
 ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[str, pa.Table]]]] = {
     'institutions': (['institutions'], lambda r, y: build_institutions(r['institutions'], y)),
     'sources': (['sources'], lambda r, y: build_sources(r['sources'], y)),
     'topics': (['topics', 'subfields', 'fields', 'domains'], lambda r, y: build_topics(r)),
+    'concepts': (['concepts'], lambda r, y: build_concepts(r['concepts'])),
 }
+STREAMED = ['authors']  # built with DuckDB, see write_authors
 
 
 def _type_name(t: str) -> str:
@@ -544,7 +742,7 @@ def write_readme(out_root: Path) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--month', default='oct-2026', help='output dir name, e.g. oct-2026')
-    parser.add_argument('--entities', nargs='+', choices=list(ENTITIES), default=list(ENTITIES))
+    parser.add_argument('--entities', nargs='+', choices=[*ENTITIES, *STREAMED], default=[*ENTITIES, *STREAMED])
     parser.add_argument('--dry-run', metavar='SCRATCH', type=Path, help='write under SCRATCH instead of the real root')
     parser.add_argument('--readme-only', action='store_true', help='only regenerate README.md from the manifests')
     args = parser.parse_args(argv)
@@ -569,6 +767,9 @@ def main(argv: list[str] | None = None) -> None:
 
     manifests = {}
     for entity in args.entities:
+        if entity in STREAMED:
+            manifests |= write_authors(out_root, max_year, snapshot)
+            continue
         raw_names, build = ENTITIES[entity]
         raws = {n: o.load_raw(RAW_ROOT, n) for n in raw_names}
         for name, table in build(raws, max_year).items():

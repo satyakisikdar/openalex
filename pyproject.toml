@@ -5,6 +5,7 @@ description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
     "brotli>=1.1.0",
+    "duckdb>=2.0.0",
     "ipykernel>=6.29.5",
     "jupyterlab>=4.4.4",
     "orjson>=3.11.5",
@@ -22,7 +23,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "duckdb>=2.0.0",
     "pytest>=8.3",
     "ty>=0.0.94",
 ]
