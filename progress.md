@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-10-30
+- Works audits 3, 4, and 5 finished overnight and agree where they overlap (audit3's references anti-join hit
+  the 60 GB cap 3 times; audit5 covers it). Decided: keep the 3,168,890 works with no year (null
+  `publication_year`), drop self-references (1,059,673), dedupe MeSH and repeated authors; recorded in `parquet.md`.
+- Funders audited (41,799 rows, `audit_funders.log`, `audit_funders2.log`); schema section proposed in
+  `schema-oct-2026.md`, not built. Open: 6 decisions, including whether to audit `awards` (17.9M rows) before works.
+
 ## 2026-10-29
 - Works schema proposal drafted (in chat, not yet in `schema-oct-2026.md`) from `audit_works.log`; two numbers
   in it were query artifacts: topic orphans (1.25B, really 0) and work-author duplicates (null author IDs

@@ -111,8 +111,13 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
 - **Decided 2026-10-29:** `num_authors` = number of distinct non-null author IDs on the work.
 - **Decided 2026-10-29:** no `works_related_works` table; drop the 4,887,758 placeholder references
   (W4285719527); `language` stays a dictionary-encoded column; build `funders` before works; build abstracts
-  last. Still open: works with no `publication_year` (15.6M over all works) and self-citations (1.09M works),
-  both under investigation in `audit_works4`.
+  last.
+- **Decided 2026-10-30** (from `audit_works3/4/5`, non-xpac):
+  - Keep the 3,168,890 works with no `publication_year` (no date either; mostly catalog records created
+    2025-2026); `publication_year` is null for them and their child rows.
+  - Drop self-references (1,059,673 works cite themselves exactly once); log the count.
+  - Dedupe MeSH rows (33,365,092 works list an identical entry more than once) and repeated authors (3,714,049
+    duplicate (work, author) pairs): one `works_authorships` row per work, author, and institution; log counts.
 - **Decided 2026-10-29:** `works_authorships` has no lineage expansion: one row per work, author, and named
   institution. `institution_lineage_level` and `assigned_institution` are dropped (derivable via
   `institutions_lineage`; list order was not depth).

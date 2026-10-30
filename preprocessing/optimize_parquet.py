@@ -51,7 +51,7 @@ def _schema(*fields: tuple[str, pa.DataType] | list[tuple[str, pa.DataType]]) ->
     return pa.schema(flat)
 
 
-INST, SRC, AUTH = ('institution_id', I64), ('source_id', I64), ('author_id', I64)
+INST, SRC, AUTH, FUND = ('institution_id', I64), ('source_id', I64), ('author_id', I64), ('funder_id', I64)
 STATS = [('2yr_mean_citedness', F32), ('h_index', U16), ('i10_index', U32)]
 WIKI = [('wikidata', U32), ('wikipedia', STR)]
 
@@ -173,6 +173,24 @@ SCHEMAS: dict[str, pa.Schema] = {
         COUNTS,
         DATES,
     ),
+    'funders': _schema(
+        FUND,
+        ('funder_name', STR),
+        ('country_code', DICT),
+        ('description', STR),
+        ('homepage_url', STR),
+        ('image_url', STR),
+        COUNTS,
+        ('num_awards', U32),
+        STATS,
+        DATES,
+    ),
+    'funders_ids': _schema(FUND, ('ror', STR), ('wikidata', U32), ('crossref', I64)),
+    'funders_alternate_titles': _schema(FUND, ('alternate_title', STR)),
+    'funders_roles': _schema(FUND, ('role', DICT), ('role_id', I64)),
+    'funders_counts_by_year': _schema(
+        FUND, ('year', U16), ('num_works', U32), ('num_oa_works', U32), ('num_citations', U32)
+    ),
     'authors': _schema(
         AUTH,
         ('author_name', STR),
@@ -231,6 +249,12 @@ DESCRIPTIONS: dict[str, str] = {
     'domains': 'One row per domain (the top level of the topic hierarchy).',
     'domains_display_name_alternatives': 'Alternative names of each domain.',
     'concepts': 'One row per concept (the legacy OpenAlex concept tagging, levels 0 to 5) with counts.',
+    'funders': 'One row per funder: name, country, and work, citation, and award counts (counts include xpac works).',
+    'funders_ids': 'External identifiers per funder: ROR, Wikidata Q-number, and Crossref Funder ID '
+    '(the funder DOI is `10.13039/` + `crossref`).',
+    'funders_alternate_titles': 'Alternative names of each funder, one row per name.',
+    'funders_roles': 'Other OpenAlex entities (institution or publisher) that represent the same organization.',
+    'funders_counts_by_year': 'Works, open-access works, and citations per funder per year (years up to 2030 kept).',
     'authors': 'One row per author: name, ORCID, and work and citation counts.',
     'authors_display_name_alternatives': 'Alternative names of each author, one row per name.',
     'authors_observed_orcids': 'Every ORCID observed for each author (includes the main `orcid`).',
@@ -543,6 +567,84 @@ def build_concepts(raw: pa.Table) -> dict[str, pa.Table]:
     return {'concepts': _conform('concepts', cols, ['concept_id'])}
 
 
+FUNDER_YEARS_AHEAD = 3  # user: keep funder years to 2030 (snapshot year + 4) to cover long-term grants
+
+
+def _require_equal(a: Any, b: Any, label: str) -> None:
+    """A dropped column must be derivable from a kept one in every row (nulls must match too)."""
+    if n := o._count(pc.invert(pc.fill_null(pc.equal(a, b), pc.and_(pc.is_null(a), pc.is_null(b))))):
+        raise SystemExit(f'{label}: {n:,} rows are not derivable; re-check the spec before dropping it.')
+
+
+def build_funders(raw: pa.Table, max_year: int) -> dict[str, pa.Table]:
+    o.assert_unique(raw['id'], 'funders.id')
+    fid = o.openalex_id(raw['id'], 'F', 'funders.id')
+    stats, ids = raw['summary_stats'], raw['ids']
+    crossref = _field(ids, 'crossref')
+    _require_equal(_field(ids, 'openalex'), raw['id'], 'funders.ids.openalex')
+    doi = pc.binary_join_element_wise('10.13039/', pc.cast(crossref, STR), '')
+    _require_equal(_field(ids, 'doi'), doi, 'funders.ids.doi')
+    thumb = pc.binary_join_element_wise(raw['image_url'], '&width=300', '')
+    _require_equal(raw['image_thumbnail_url'], thumb, 'funders.image_thumbnail_url')
+    key = ['funder_id']
+    out = {
+        'funders': _conform(
+            'funders',
+            {
+                'funder_id': fid,
+                'funder_name': raw['display_name'],
+                'country_code': raw['country_code'],
+                'description': raw['description'],
+                'homepage_url': raw['homepage_url'],
+                'image_url': raw['image_url'],
+                'num_works': raw['works_count'],
+                'num_citations': raw['cited_by_count'],
+                'num_awards': raw['awards_count'],
+                **{k: _field(stats, k) for k in ('2yr_mean_citedness', 'h_index', 'i10_index')},
+                'updated_date': raw['updated_date'],
+                'created_date': raw['created_date'],
+            },
+            key,
+        ),
+        'funders_ids': _conform(
+            'funders_ids',
+            {
+                'funder_id': fid,
+                'ror': o.ror(_field(ids, 'ror'), 'funders.ids.ror'),
+                'wikidata': o.wikidata(_field(ids, 'wikidata'), 'funders.ids.wikidata'),
+                'crossref': crossref,
+            },
+            key,
+        ),
+    }
+    base = pa.table(
+        {'funder_id': fid, 'parent_works': raw['works_count']}
+        | {c: raw[c] for c in ('alternate_titles', 'roles', 'counts_by_year')}
+    )
+    t = o.dedupe(o.explode(base, key, 'alternate_titles'), 'funders_alternate_titles')
+    out['funders_alternate_titles'] = _conform(
+        'funders_alternate_titles', {'funder_id': t['funder_id'], 'alternate_title': t['alternate_titles']}, key
+    )
+    r = o.explode(base, ['funder_id', 'parent_works'], 'roles')
+    r = r.append_column('role_id', o.openalex_id(r['id'], '[IFP]', 'funders.roles.id'))
+    is_self = pc.equal(r['role'], 'funder')
+    restates = pc.and_(pc.equal(r['role_id'], r['funder_id']), pc.equal(r['works_count'], r['parent_works']))
+    if o._count(is_self) != o._count(pc.and_(is_self, restates)):
+        raise SystemExit('funders_roles: a funder role row differs from its parent; re-check the spec.')
+    r = _drop_self(r, is_self, raw.num_rows, 'funders_roles', 'self funder role')
+    out['funders_roles'] = _conform(
+        'funders_roles', {'funder_id': r['funder_id'], 'role': r['role'], 'role_id': r['role_id']}, key
+    )
+    out['funders_counts_by_year'] = _counts_by_year(
+        base,
+        'funder_id',
+        'funders_counts_by_year',
+        max_year + FUNDER_YEARS_AHEAD,
+        ['num_works', 'num_oa_works', 'num_citations'],
+    )
+    return out
+
+
 # Authors are too big for memory: capped DuckDB does the unnest, dedupe, and sort (spilling to disk), and pyarrow
 # writes the batches in the same layout as every other table. ORDER BY ALL gives a full, deterministic order.
 DUCKDB_CONFIG: dict[str, Any] = {
@@ -681,6 +783,7 @@ ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[s
     'sources': (['sources'], lambda r, y: build_sources(r['sources'], y)),
     'topics': (['topics', 'subfields', 'fields', 'domains'], lambda r, y: build_topics(r)),
     'concepts': (['concepts'], lambda r, y: build_concepts(r['concepts'])),
+    'funders': (['funders'], lambda r, y: build_funders(r['funders'], y)),
 }
 STREAMED = ['authors']  # built with DuckDB, see write_authors
 

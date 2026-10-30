@@ -256,3 +256,80 @@ Not buildable from this snapshot: every list and nested field in raw concepts is
 (`ancestors`, `related_concepts`, `counts_by_year`, `international`, UMLS IDs, `mag`, `summary_stats`), so the
 old `concepts_ancestors`, `concepts_related_concepts`, `concepts_counts_by_year`, and `concepts_ids` tables have
 no data. Dropped: `works_api_url`, `image_thumbnail_url`, `ids.openalex`, `ids.wikidata` (equals `wikidata`).
+
+---
+
+# Funders (approved 2026-10-30)
+
+All 6 decisions approved as recommended; funder years are kept up to 2030 (user, for long-term grants).
+
+Raw: 41,799 funders in 89 files (11 MB), identical schema in every file, IDs unique, no deleted placeholder.
+Audit logs: `yoda:/home/ssikdar/scratch/audit_funders.log` and `audit_funders2.log`.
+
+## `funders` (41,799 rows; old table)
+| Column | Type | Raw source | Observed | Note |
+|---|---|---|---|---|
+| funder_id | int64 | id | 383,216 to 8,999,503,552 | |
+| funder_name | string | display_name | max 176 chars; 41,631 distinct (same-named funders exist) | old name kept |
+| country_code | dict | country_code | 178 values, 191 null | |
+| description | string | description | 22,267 null | |
+| homepage_url | string | homepage_url | 19,396 null | |
+| image_url | string | image_url | 8,264 non-null | new |
+| num_works | uint32 | works_count | 0 to 4,594,495 | counts all works, including xpac (Decision 3) |
+| num_citations | uint32 | cited_by_count | 0 to 118,320,188 | |
+| num_awards | uint32 | awards_count | 0 to 2,765,614; 30,113 non-zero | old `grants_count`; equals the funder's row count in raw `awards` for all 30,113 |
+| 2yr_mean_citedness | float32 | summary_stats | 0 to 11,934.5 | new |
+| h_index | uint16 | summary_stats | 0 to 1,994; 3,126 null (all with 0 works) | |
+| i10_index | uint32 | summary_stats | 0 to 2,347,574 | new |
+| updated_date | date32 | updated_date | all have a time of day (dropped) | |
+| created_date | date32 | created_date | 41,777 have a time of day (dropped) | new |
+
+## `funders_ids` (41,799 rows; old table)
+| Column | Type | Raw source | Observed | Note |
+|---|---|---|---|---|
+| funder_id | int64 | id | | |
+| ror | string | ids.ror | 28,060 non-null, all well formed | prefix stripped; 1,429 RORs are shared by 3,925 funders (subunits carry the parent's ROR, up to 12 per ROR) |
+| wikidata | uint32 | ids.wikidata | 21,672 non-null, max Q135,404,248 | Q-number; 3 raw forms (`/entity/`, `/wiki/`, 1 without `https://www.`) normalized |
+| crossref | int64 | ids.crossref | 41,777 non-null, all distinct | Crossref Funder ID; 16,160 exceed `uint32` (e.g. 501100002846) |
+
+## Child tables
+| Table | Columns (type) | Rows | Note |
+|---|---|---|---|
+| `funders_alternate_titles` (old) | funder_id int64, alternate_title string | 96,883 | 22 repeated elements within a funder removed (`len - len(list_distinct)`); 334 lists include the display name (kept) |
+| `funders_roles` (old) | funder_id int64, role dict, role_id int64 | 20,257 | 17,493 institution + 2,764 publisher; at most 1 per role per funder; 13 institution IDs absent from `oct-2026/institutions` (kept) |
+| `funders_counts_by_year` (old) | funder_id int64, year uint16, num_works uint32, num_oa_works uint32, num_citations uint32 | 740,147 | years 1500 to 2030 kept (user, 2026-10-30: long-term grants; 50 entries in 2028 to 2030); 387 of 740,534 entries dropped: 386 above 2030 (max 20125; 10000 x230, 2525 to 2565, 2099, 9999) and 1 below 1500 (1445); no repeated years |
+
+## Dropped, with proof
+| Raw column(s) | Why |
+|---|---|
+| `ids.openalex` | equals `id` in every row |
+| `ids.doi` | equals `10.13039/` + `ids.crossref` in all 41,777 non-null rows (null together in 22) |
+| `image_thumbnail_url` | equals `image_url` + `&width=300` in every row |
+| `roles` entries with role `funder` | always the funder itself (41,799 of 41,799), and its `works_count` equals the parent's in every row |
+| `roles.works_count` for institutions and publishers | that entity's own count, already in its table; the copies are stale (differ in 6,611 of 17,480 and 750 of 2,764) |
+| `funder_name` in child tables | joinable on `funder_id` |
+| old `funders_summary_stats` columns `oa_percent`, `2yr_works_count`, `2yr_h_index`, `2yr_i10_index` | gone from the raw data |
+
+## Decisions for the user
+1. **Fold `summary_stats` into `funders`** (old schema had a separate `funders_summary_stats` table), as done for
+   institutions and authors. Recommended.
+2. **Keep `funders_ids` as its own table** (old table; the rule keeps `<x>_ids`), with `doi` dropped as derivable.
+   Alternative: fold `ror`, `wikidata`, and `crossref` into `funders`. Recommended: keep the table.
+3. **xpac in counts:** `works_count`, `cited_by_count`, `counts_by_year`, and `summary_stats` are OpenAlex's
+   counts over all works, including xpac. Counting non-xpac works ourselves gives a different `num_works` for
+   20,767 of the 38,644 funders that appear on non-xpac works (up to 506,841 fewer; 376 higher). Recomputing
+   only `num_works` would make it inconsistent with the other counts. Recommended: keep the raw counts and
+   document that they include xpac (same as authors and institutions).
+4. **Bad years** in `counts_by_year`: drop and log. Approved, with years kept up to 2030 (387 entries dropped).
+5. **`role` + `role_id`**: role IDs are institutions or publishers, so the numeric ID needs the `role` column to
+   be unambiguous. Recommended: keep `role` (2 values, dictionary-encoded).
+6. **Awards** is a separate raw entity (17,927,707 rows, deeply nested: investigators, institutions, topics,
+   parent and sub awards). All but 1 of its 30,114 funder IDs resolve to a funder. Works link to it
+   (`works.awards`, 56.1M non-xpac elements per `audit_works3.log`). Recommended: audit and build `awards` next, before works.
+
+Facts with no decision needed: 0 orphan funder IDs on non-xpac works (38,644 distinct); 3,155 funders appear on
+no non-xpac work (29 of them have `works_count` > 0); `country_code` differs from the linked institution's in 199
+of 17,480 role pairs (kept as raw).
+`funders_ids` keeps every funder, including up to 22 rows where `ror`, `wikidata`, and `crossref` are all null.
+Publisher role IDs all resolve in raw `publishers` (0 of 2,764 orphans), but there is no `oct-2026/publishers` table yet;
+it needs building for that join.

@@ -289,3 +289,65 @@ def test_build_concepts() -> None:
     out = op.build_concepts(pa.Table.from_pylist([row]))
     _check(out)
     assert out['concepts'].to_pylist()[0]['wikidata'] == 21198
+
+
+def _funder(n: int, **over: object) -> dict:
+    row = {
+        'id': f'{OA}F{n}',
+        'display_name': f'Funder {n}',
+        'alternate_titles': ['FN', 'FN', 'Fund'],  # real data repeats a title (22 times)
+        'country_code': 'US',
+        'description': None,
+        'homepage_url': None,
+        'image_url': 'https://img/x?a=1',
+        'image_thumbnail_url': 'https://img/x?a=1&width=300',
+        'ids': {
+            'openalex': f'{OA}F{n}',
+            'ror': 'https://ror.org/048rgv164',
+            'wikidata': 'wikidata.org/wiki/Q2217705',  # 1 raw value has no scheme or www
+            'crossref': 501100002846,  # exceeds uint32
+            'doi': '10.13039/501100002846',
+        },
+        'works_count': 10,
+        'cited_by_count': 20,
+        'awards_count': 3,
+        'roles': [
+            {'role': 'funder', 'id': f'{OA}F{n}', 'works_count': 10},
+            {'role': 'institution', 'id': f'{OA}I5', 'works_count': 999},
+            {'role': 'publisher', 'id': f'{OA}P6', 'works_count': 7},
+        ],
+        'counts_by_year': [*CBY, {'year': 2030, 'works_count': 1, 'oa_works_count': 0, 'cited_by_count': 0}],
+        'summary_stats': STATS | {'h_index': None},
+        'updated_date': TS,
+        'created_date': TS,
+    }
+    return row | over
+
+
+def test_build_funders() -> None:
+    out = op.build_funders(pa.Table.from_pylist([_funder(2), _funder(1)]), max_year=2027)
+    _check(out)
+    f = out['funders'].to_pylist()
+    assert [r['funder_id'] for r in f] == [1, 2] and f[0]['num_awards'] == 3 and f[0]['h_index'] is None
+    assert out['funders_ids'].to_pylist()[0] == {
+        'funder_id': 1,
+        'ror': '048rgv164',
+        'wikidata': 2217705,
+        'crossref': 501100002846,
+    }
+    titles = out['funders_alternate_titles'].to_pylist()
+    assert [t['alternate_title'] for t in titles if t['funder_id'] == 1] == ['FN', 'Fund']
+    assert out['funders_roles'].to_pylist()[:2] == [
+        {'funder_id': 1, 'role': 'institution', 'role_id': 5},
+        {'funder_id': 1, 'role': 'publisher', 'role_id': 6},
+    ]
+    assert out['funders_counts_by_year'].column('year').to_pylist() == [2024, 2030, 2024, 2030]  # user: keep to 2030
+
+
+def test_build_funders_fails_when_doi_is_not_derivable() -> None:
+    import pytest
+
+    bad = _funder(1)
+    bad['ids'] = bad['ids'] | {'doi': '10.13039/1'}
+    with pytest.raises(SystemExit, match='doi'):
+        op.build_funders(pa.Table.from_pylist([bad]), max_year=2027)

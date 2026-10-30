@@ -110,9 +110,9 @@ def grid(arr: Col, label: str) -> pa.Array:
 
 
 def wikidata(arr: Col, label: str) -> pa.Array:
-    """Any wikidata form (http/https, /wiki/ or /entity/, bare Q123) -> Q-number as uint32."""
+    """Any wikidata form (http/https, with or without www, /wiki/ or /entity/, bare Q123) -> Q-number as uint32."""
     arr = null_like_to_null(arr, label)
-    parts = extract(arr, r'^(?:https?://www\.wikidata\.org/(?:wiki|entity)/)?Q(?P<q>\d+)$', label)
+    parts = extract(arr, r'^(?:(?:https?://)?(?:www\.)?wikidata\.org/(?:wiki|entity)/)?Q(?P<q>\d+)$', label)
     _log_normalized(arr, r'^https://www\.wikidata\.org/wiki/Q', label)
     return cast(pc.struct_field(parts, 'q'), pa.uint32(), label)
 
