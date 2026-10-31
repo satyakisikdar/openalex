@@ -598,8 +598,9 @@ dry run; `/data` has 2.0 TB free.
 
 New entity: the old flattener had no keywords table, only `works_keywords` and `topics_keywords`. Raw: 1,881,723
 keywords in 9 files, identical schema in every file, IDs unique, all of the form
-`https://openalex.org/keywords/<slug>` (slugs up to 109 chars; 70 non-ASCII, e.g. `粟裕`, `naʿmān`). Audit log:
-`yoda:/home/ssikdar/scratch/audit_keywords.log`. Small, so built on the in-memory path.
+`https://openalex.org/keywords/<slug>` (slugs up to 109 chars; 70 non-ASCII, e.g. `粟裕`, `naʿmān`). Audit logs:
+`yoda:/home/ssikdar/scratch/audit_keywords.log` and `audit_keywords2.log` (corrected `works_api_url` and
+`primary_topic` proofs; the counts below marked audit2). Small, so built on the in-memory path.
 
 ## `keywords` (1,881,723 rows; new table)
 | Column | Type | Raw source | Observed | Note |
@@ -608,30 +609,32 @@ keywords in 9 files, identical schema in every file, IDs unique, all of the form
 | keyword_name | string | display_name | 0 null, 0 empty, max 109 chars; unique per keyword (1,881,723 names) | Decision 1 |
 | description | string | description | 12 null, max 233 chars | |
 | wikidata | uint32 | ids.wikidata | 414,095 non-null, all `https://www.wikidata.org/wiki/Q…`, max Q141,493,711 | Q-number |
-| num_works | uint32 | works_count | 1 to 10,374,709 | OpenAlex's count, includes xpac works (larger than the non-xpac row count for 1,872,618 keywords) |
+| num_works | uint32 | works_count | 1 to 10,374,709 | OpenAlex's count, includes xpac works: larger than the non-xpac row count for 1,872,618 keywords, equal for 8,888; smaller for 217 (by 1,402 rows in all, at most 342), and smaller even than all works for those 217, so a slightly stale count (audit2) |
 | num_citations | uint32 | cited_by_count | 0 to 20,032,860 | |
-| updated_date | date32 | updated_date | all have a time of day (dropped) | |
+| updated_date | date32 | updated_date | 0 null, 2026-10-05 to 2026-10-14 (audit2); all have a time of day (dropped) | |
 | created_date | date32 | created_date | 2016-06-24 onward; 193,413 have a time of day (dropped) | |
 
 ## Child tables
 | Table | Columns (type) | Rows | Note |
 |---|---|---|---|
 | `keywords_display_name_alternatives` | keyword_id string, display_name_alternative string | 5,159,250 | 1,712,809 keywords have any (max 45); 0 repeats, 0 empty, none equal the name |
-| `keywords_topics` | keyword_id string, topic_id uint16, score float32, is_primary_topic bool | 3,942,086 | at most 9 per keyword (78,984 have none); 0 repeats; 0 orphans; score 0.07 to 1. Decision 2 |
+| `keywords_topics` | keyword_id string, topic_id uint16, score float32, is_primary_topic bool | 3,942,086 | at most 9 per keyword (78,984 have none); 0 repeats; 0 orphans; topic IDs up to T14521; score 0.07 to 1 (9,301 distinct values, all still distinct as float32; audit2). Decision 2 |
 
 ## Dropped, with proof
 | Raw column(s) | Why |
 |---|---|
-| `works_api_url` | equals `https://api.openalex.org/works?filter=keywords.id:keywords/` + slug in every row |
+| `works_api_url` | equals `https://api.openalex.org/works?filter=keywords.id:keywords/` + slug in all 1,881,723 rows (audit2) |
 | `ids.openalex` | equals `id` in every row |
-| `primary_topic` | null in 555,166 rows; otherwise always `topics[1]` (the 476,182 mismatches are exactly the keywords with topics but no primary): kept as `is_primary_topic` |
+| `primary_topic` | set in 1,326,557 rows and equal to `topics[1]` (whole struct) in all of them; null in 555,166 (476,182 of those have topics); never set without topics (audit2): kept as `is_primary_topic` |
 | topic names and subfield, field, domain IDs and names | match `oct-2026/topics`, `subfields`, `fields`, and `domains` in all 3,942,086 elements |
 
 ## Related tables
 - `works_keywords` (built with works): 1,877,787 slugs, all but 4 in this table (`spatiotemporal-attention-mechanism`,
   `security-vetting`, `strictly-hyperbolic-operators`, `joint-unloading`, 1 row each). Decision 3. The keyword name
-  copied into works differs from `keyword_name` for 22 slugs (715 rows, e.g. `leafhoppers` named "Cicadellidae");
+  copied into works differs from `keyword_name` for 22 slugs (one name each, 715 rows; audit2; e.g. `leafhoppers` named "Cicadellidae");
   this table's name is the canonical one, which is why `works_keywords` keeps only the slug.
+- Raw files sit in `updated_date=` folders, so the builder reads them file by file (`pq.read_table` on the directory
+  fails on the partition column).
 - `topics_keywords` (built 2026-10-29): its 101,671 pairs are all in `keywords_topics`, which has 3,840,415 more;
   scores differ in 15,566 shared pairs (each entity reports its own); its `keyword` names equal `keyword_name` in all
   101,671. Decision 4.
