@@ -290,6 +290,7 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('has_fulltext', BOOL),
         ('has_pdf', BOOL),
         ('has_grobid_xml', BOOL),
+        ('primary_source_is_oa', BOOL),
         ('is_retracted', BOOL),
         ('is_paratext', BOOL),
         DATES,
@@ -309,6 +310,7 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('raw_orcid', STR),
         ('is_corresponding', BOOL),
         INST,
+        ('country_code', DICT),
         ('raw_affiliation_string', STR),
     ),
     'works_corresponding_institutions': _schema(WORK, YEAR, INST),
@@ -320,6 +322,7 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('is_best_oa', BOOL),
         ('native_id', STR),
         SRC,
+        ('source_is_oa', BOOL),
         ('doi', STR),
         ('landing_page_url', STR),
         ('pdf_url', STR),
@@ -1078,14 +1081,15 @@ def works_sql() -> dict[str, str]:
             oa_id(volume.id, 'W', 'volume id') volume_work_id, blank(volume.display_name) volume_name,
             n_auth > 0 and n_noinst = 0 has_complete_institution_info, len(awards) > 0 has_grant_info,
             len(keywords) > 0 has_keywords, has_fulltext, has_content.pdf has_pdf,
-            has_content.grobid_xml has_grobid_xml,
+            has_content.grobid_xml has_grobid_xml, ps.is_oa primary_source_is_oa,
             is_retracted, is_paratext, updated_date::date updated_date, created_date::date created_date
             from (select w.*,
                 len(list_distinct(list_filter(list_transform(authorships, lambda s: s.author.id),
                     lambda x: x is not null))) - coalesce(o.n_orph, 0) n_auth,
                 len(list_filter(authorships, lambda s: s.author.id is not null and len(s.institutions) = 0))
                     - coalesce(o.n_orph_noinst, 0) n_noinst
-              from w left join orph o using (id)) w order by all""",
+              from w left join orph o using (id)) w
+            left join src_oa ps on ps.source_id = oa_id(w.locations[1].source.id, 'S', 'source id') order by all""",
         'works_ids': child(
             "cast(ids['mag'] as bigint) mag, pmid_clean(ids['pmid']) pmid, ids['openalex_curation'] openalex_curation",
             'ids',
@@ -1101,13 +1105,17 @@ def works_sql() -> dict[str, str]:
             'biblio',
         ),
         'works_authorships': f"""select work_id, publication_year, author_order, author_position, author_id,
-            raw_author_name, raw_orcid, is_corresponding, oa_id(inst, 'I', 'institution id') institution_id,
+            raw_author_name, raw_orcid, is_corresponding, oa_id(inst.id, 'I', 'institution id') institution_id,
+            coalesce(inst.country_code, case when len(left_cc) = 1 and n_slots = 1 then left_cc[1] end) country_code,
             raw_affiliation_string from (
               select {wid}, j::usmallint author_order, e.author_position author_position,
                 oa_id(e.author.id, 'A', 'author id') author_id, blank(e.raw_author_name) raw_author_name,
                 orcid_any(e.raw_orcid) raw_orcid, e.is_corresponding is_corresponding,
-                unnest(case when len(e.institutions) = 0 then [null]
-                            else list_transform(e.institutions, lambda i: i.id) end) inst,
+                unnest(case when len(e.institutions) = 0 then [null] else e.institutions end) inst,
+                list_filter(list_distinct(e.countries), lambda c: not list_contains(
+                    list_transform(e.institutions, lambda i: i.country_code), c)) left_cc,
+                len(list_filter(e.institutions, lambda i: i.country_code is null))
+                    + (len(e.institutions) = 0)::int n_slots,
                 nullif(array_to_string(list_filter(e.raw_affiliation_strings, lambda r: trim(r) <> ''), ';'), '')
                   raw_affiliation_string
               from (select id, publication_year, unnest(authorships) e, unnest(generate_series(1, len(authorships))) j,
@@ -1118,15 +1126,19 @@ def works_sql() -> dict[str, str]:
         'works_corresponding_institutions': child(
             "oa_id(c, 'I', 'corresponding institution id') institution_id", 'unnest(corresponding_institution_ids) c'
         ),
-        'works_locations': child(
-            'j::usmallint location_order, j = 1 is_primary, coalesce(bpos = j, false) is_best_oa, l.id native_id, '
-            "oa_id(l.source.id, 'S', 'source id') source_id, doi_strip(l.doi) doi, "
-            'blank(l.landing_page_url) landing_page_url, blank(l.pdf_url) pdf_url, l.version version, '
-            'l.license license, l.is_oa is_oa, l.is_accepted is_accepted, l.is_published is_published, '
-            'blank(l.raw_source_name) raw_source_name, blank(l.raw_type) raw_type, l.provenance provenance',
-            'unnest(locations) l, unnest(generate_series(1, len(locations))) j, '
-            'list_position(locations, best_oa_location) bpos',
-        ),
+        'works_locations': f"""select work_id, publication_year, location_order, is_primary, is_best_oa, native_id,
+            x.source_id, so.is_oa source_is_oa, doi, landing_page_url, pdf_url, version, license, x.is_oa, is_accepted,
+            is_published, raw_source_name, raw_type, provenance from ({
+            child(
+                'j::usmallint location_order, j = 1 is_primary, coalesce(bpos = j, false) is_best_oa, l.id native_id, '
+                "oa_id(l.source.id, 'S', 'source id') source_id, doi_strip(l.doi) doi, "
+                'blank(l.landing_page_url) landing_page_url, blank(l.pdf_url) pdf_url, l.version version, '
+                'l.license license, l.is_oa is_oa, l.is_accepted is_accepted, l.is_published is_published, '
+                'blank(l.raw_source_name) raw_source_name, blank(l.raw_type) raw_type, l.provenance provenance',
+                'unnest(locations) l, unnest(generate_series(1, len(locations))) j, '
+                'list_position(locations, best_oa_location) bpos',
+            ).removesuffix(' order by all')
+        }) x left join src_oa so using (source_id) order by all""",
         'works_topics': child(
             "j = 1 is_primary_topic, t.score::float score, oa_id(t.id, 'T', 'topic id')::usmallint topic_id, "
             "t.display_name topic_name, oa_id(t.subfield.id, 'subfields/', 'subfield id')::usmallint subfield_id, "
@@ -1187,10 +1199,25 @@ def write_works(
     ref_root = ref_root or out_root
     con = duckdb_connection(f"'{raw_root}/works/*/*.parquet'")
     con.execute(WORKS_MACROS)
-    con.execute('create or replace temp view w as select * from a where not is_xpac')
     con.execute(
         f"create or replace temp table known as select author_id from read_parquet('{ref_root}/authors/*.parquet')"
     )
+    con.execute(
+        'create or replace temp table src_oa as select source_id, is_oa '
+        f"from read_parquet('{ref_root}/sources/*.parquet')"
+    )
+    # Institution IDs not in the built institutions table (stale IDs; user: null them) are removed from each
+    # authorship before anything else reads it, so dedupe keys and per-work flags see the cleaned lists.
+    orphan_insts = con.execute(f"""select coalesce(list(distinct x.i order by x.i), []) from
+        (select unnest(s.institutions).id i from (select unnest(authorships) s from a where not is_xpac)) x
+        anti join read_parquet('{ref_root}/institutions/*.parquet') b
+        on oa_id(x.i, 'I', 'institution id') = b.institution_id""").fetchall()[0][0]
+    log.info('works: %s orphan institution IDs removed from authorships: %s', len(orphan_insts), orphan_insts)
+    con.execute('set variable orphan_insts = $1', [orphan_insts])
+    con.execute("""create or replace temp view w as select * replace (list_transform(authorships, lambda s:
+        struct_update(s, institutions := list_filter(s.institutions,
+            lambda i: not list_contains(getvariable('orphan_insts'), i.id)))) as authorships)
+        from a where not is_xpac""")
     con.execute(
         "create or replace temp table yrs as select oa_id(id, 'W', 'work id') work_id, "
         'publication_year::usmallint publication_year from w'

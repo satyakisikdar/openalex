@@ -541,14 +541,15 @@ def _no_null_types(schema: pa.Schema) -> pa.Schema:
     return pa.schema([pa.field(f.name, fix(f.type)) for f in schema])
 
 
-def _authorship(aid: int | None, insts: list[int], order_name: str) -> dict:
+def _authorship(aid: int | None, insts: list[int], order_name: str, countries: list[str] | None = None) -> dict:
     return {
         'author': {'id': None if aid is None else f'{OA}A{aid}'},
         'author_position': 'middle',
         'raw_author_name': order_name,
         'raw_orcid': 'https://orcid.org/0000-0002-1825-009x',
         'is_corresponding': False,
-        'institutions': [{'id': f'{OA}I{i}'} for i in insts],
+        'institutions': [{'id': f'{OA}I{i}', 'country_code': 'US' if i == 5 else None} for i in insts],
+        'countries': countries or [],
         'raw_affiliation_strings': ['Univ', ' '],
     }
 
@@ -570,12 +571,13 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
         _authorship(None, [5], 'no author ID: dropped'),
         _authorship(99, [], 'orphan author: dropped'),
         _authorship(12, [], 'no institution'),
+        _authorship(13, [77, 6], 'orphan institution 77 and 6 with no country', ['PT']),
     ]
     rows = [
         _work(
             2,
             authorships=authorships,
-            authors_count=6,
+            authors_count=7,
             referenced_works=[f'{OA}W1', f'{OA}W2', f'{OA}W4285719527', f'{OA}W3', f'{OA}W8'],
             concepts=[{'id': f'{OA}C4', 'score': 0.1}, {'id': f'{OA}C4', 'score': 0.2}],
             mesh=[m1, m1 | {'is_major_topic': True}],
@@ -588,7 +590,13 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     table = pa.Table.from_pylist(rows)
     pq.write_table(table.cast(_no_null_types(table.schema)), part / 'part_0000.parquet')
     (tmp_path / 'ref' / 'authors').mkdir(parents=True)
-    pq.write_table(pa.table({'author_id': [11, 12]}), tmp_path / 'ref' / 'authors' / 'part-00000.parquet')
+    pq.write_table(pa.table({'author_id': [11, 12, 13]}), tmp_path / 'ref' / 'authors' / 'part-00000.parquet')
+    for name, table in {
+        'institutions': pa.table({'institution_id': [5, 6]}),
+        'sources': pa.table({'source_id': [3], 'is_oa': [True]}),
+    }.items():
+        (tmp_path / 'ref' / name).mkdir()
+        pq.write_table(table, tmp_path / 'ref' / name / 'part-00000.parquet')
     monkeypatch.setitem(op.DUCKDB_CONFIG, 'temp_directory', str(tmp_path / 'tmp'))
     monkeypatch.setitem(op.DUCKDB_CONFIG, 'memory_limit', '1GB')
     out = tmp_path / 'oct-2026'
@@ -596,13 +604,15 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     assert set(manifests) == {n for n in op.SCHEMAS if n.startswith('works')}
     w = pq.read_table(out / 'works').to_pylist()
     assert [r['work_id'] for r in w] == [1, 2]  # xpac work 3 skipped
-    assert w[1]['num_authors'] == 2 and w[1]['has_complete_institution_info'] is False
+    assert w[1]['num_authors'] == 3 and w[1]['has_complete_institution_info'] is False
+    assert w[0]['primary_source_is_oa'] is True
     assert w[1]['doi'] is None and w[1]['title'] is None and w[1]['apc_paid_value'] == 90
     a = pq.read_table(out / 'works_authorships').to_pylist()
-    assert [(r['author_order'], r['author_id'], r['institution_id']) for r in a] == [
-        (1, 11, 5),
-        (3, 11, 6),
-        (6, 12, None),
+    assert [(r['author_order'], r['author_id'], r['institution_id'], r['country_code']) for r in a] == [
+        (1, 11, 5, 'US'),
+        (3, 11, 6, None),
+        (6, 12, None, None),
+        (7, 13, 6, 'PT'),  # orphan institution 77 removed; the one country the institutions lack goes to 6
     ]
     assert a[0]['raw_orcid'] == '0000-0002-1825-009X' and a[0]['raw_affiliation_string'] == 'Univ'
     refs = pq.read_table(out / 'works_referenced_works').to_pylist()
@@ -615,6 +625,7 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     assert len(mesh) == 1 and mesh[0]['is_major_topic'] is True
     loc = pq.read_table(out / 'works_locations').to_pylist()[0]
     assert loc['is_primary'] and loc['is_best_oa'] and loc['doi'] == '10.1/1' and loc['source_id'] == 3
+    assert loc['source_is_oa'] is True
     t = pq.read_table(out / 'works_topics').to_pylist()[0]
     assert (t['topic_id'], t['subfield_id'], t['field_id'], t['domain_id'], t['is_primary_topic']) == (
         10055,
