@@ -591,3 +591,58 @@ dry run; `/data` has 2.0 TB free.
     Recommended: drop the column and log that work.
 21. **`raw_orcid` cleanup (Decision 3)** assumes the 323 malformed values are a lowercase `x`; the build logs any
     value that still fails the ORCID pattern and stores it null.
+
+# Keywords
+
+**Status: proposed 2026-10-30.** Nothing built.
+
+New entity: the old flattener had no keywords table, only `works_keywords` and `topics_keywords`. Raw: 1,881,723
+keywords in 9 files, identical schema in every file, IDs unique, all of the form
+`https://openalex.org/keywords/<slug>` (slugs up to 109 chars; 70 non-ASCII, e.g. `粟裕`, `naʿmān`). Audit log:
+`yoda:/home/ssikdar/scratch/audit_keywords.log`. Small, so built on the in-memory path.
+
+## `keywords` (1,881,723 rows; new table)
+| Column | Type | Raw source | Observed | Note |
+|---|---|---|---|---|
+| keyword_id | string | id | slug, prefix stripped; 0 bad prefixes | the key `works_keywords` and `topics_keywords` use |
+| keyword_name | string | display_name | 0 null, 0 empty, max 109 chars; unique per keyword (1,881,723 names) | Decision 1 |
+| description | string | description | 12 null, max 233 chars | |
+| wikidata | uint32 | ids.wikidata | 414,095 non-null, all `https://www.wikidata.org/wiki/Q…`, max Q141,493,711 | Q-number |
+| num_works | uint32 | works_count | 1 to 10,374,709 | OpenAlex's count, includes xpac works (larger than the non-xpac row count for 1,872,618 keywords) |
+| num_citations | uint32 | cited_by_count | 0 to 20,032,860 | |
+| updated_date | date32 | updated_date | all have a time of day (dropped) | |
+| created_date | date32 | created_date | 2016-06-24 onward; 193,413 have a time of day (dropped) | |
+
+## Child tables
+| Table | Columns (type) | Rows | Note |
+|---|---|---|---|
+| `keywords_display_name_alternatives` | keyword_id string, display_name_alternative string | 5,159,250 | 1,712,809 keywords have any (max 45); 0 repeats, 0 empty, none equal the name |
+| `keywords_topics` | keyword_id string, topic_id uint16, score float32, is_primary_topic bool | 3,942,086 | at most 9 per keyword (78,984 have none); 0 repeats; 0 orphans; score 0.07 to 1. Decision 2 |
+
+## Dropped, with proof
+| Raw column(s) | Why |
+|---|---|
+| `works_api_url` | equals `https://api.openalex.org/works?filter=keywords.id:keywords/` + slug in every row |
+| `ids.openalex` | equals `id` in every row |
+| `primary_topic` | null in 555,166 rows; otherwise always `topics[1]` (the 476,182 mismatches are exactly the keywords with topics but no primary): kept as `is_primary_topic` |
+| topic names and subfield, field, domain IDs and names | match `oct-2026/topics`, `subfields`, `fields`, and `domains` in all 3,942,086 elements |
+
+## Related tables
+- `works_keywords` (built with works): 1,877,787 slugs, all but 4 in this table (`spatiotemporal-attention-mechanism`,
+  `security-vetting`, `strictly-hyperbolic-operators`, `joint-unloading`, 1 row each). Decision 3. The keyword name
+  copied into works differs from `keyword_name` for 22 slugs (715 rows, e.g. `leafhoppers` named "Cicadellidae");
+  this table's name is the canonical one, which is why `works_keywords` keeps only the slug.
+- `topics_keywords` (built 2026-10-29): its 101,671 pairs are all in `keywords_topics`, which has 3,840,415 more;
+  scores differ in 15,566 shared pairs (each entity reports its own); its `keyword` names equal `keyword_name` in all
+  101,671. Decision 4.
+
+## Decisions for the user
+1. **Name column:** `keyword_name` (like `topic_name`, `funder_name`) or `keyword` (the old `works_keywords` and
+   `topics_keywords` column name). Recommended: `keyword_name`.
+2. **`keywords_topics.is_primary_topic`:** true for `topics[1]` only when the raw `primary_topic` is set (1,326,557
+   keywords); 476,182 keywords have topics but no primary topic, so all their rows are false. Recommended.
+3. **The 4 works keyword slugs missing here** (4 rows): drop them from `works_keywords` and log, like orphan authors.
+   Recommended.
+4. **`topics_keywords.keyword`** is now derivable (equal in all 101,671 rows). Drop it and rebuild topics (seconds), or
+   keep it as the old table had it. Recommended: drop.
+5. **Counts include xpac works** (like funders and awards); keep OpenAlex's numbers. Recommended.
