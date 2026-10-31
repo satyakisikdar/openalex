@@ -89,9 +89,9 @@ Source: raw OpenAlex Parquet snapshot dated 2026-10-14. Ranges below are observe
 | i10_index | uint32 | summary_stats | 0 to 932,403 | new |
 | country_code | dict | country_code | 277 values (includes MARC codes like `ENK`, `NYU`) | |
 | is_oa, is_in_doaj, is_core | bool | same | | |
-| is_in_doaj_since_year | uint16 | same | 1881 to 2026 | new |
+| in_doaj_since_year | uint16 | is_in_doaj_since_year (renamed 2026-10-30) | 1881 to 2026 | new |
 | is_high_oa_rate | bool | same | | new |
-| is_high_oa_rate_since_year | int32 | same | 1828 to 2027 | new; int32 per user |
+| high_oa_rate_since_year | int32 | is_high_oa_rate_since_year (renamed 2026-10-30) | 1828 to 2027 | new; int32 per user |
 | is_in_scielo, is_ojs, is_preprint_repository | bool | same | | new |
 | oa_flip_year | uint16 | same | 1827 to 2026 | new |
 | first_publication_year | uint16 | same | 0 to 2027 (values 0, 1, 2, 202 exist) | new |

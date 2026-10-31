@@ -109,9 +109,9 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('country_code', DICT),
         ('is_oa', BOOL),
         ('is_in_doaj', BOOL),
-        ('is_in_doaj_since_year', U16),
+        ('in_doaj_since_year', U16),
         ('is_high_oa_rate', BOOL),
-        ('is_high_oa_rate_since_year', pa.int32()),
+        ('high_oa_rate_since_year', pa.int32()),
         ('is_in_scielo', BOOL),
         ('is_ojs', BOOL),
         ('is_core', BOOL),
@@ -612,9 +612,7 @@ def build_sources(raw: pa.Table, max_year: int) -> dict[str, pa.Table]:
         'type',
         'is_oa',
         'is_in_doaj',
-        'is_in_doaj_since_year',
         'is_high_oa_rate',
-        'is_high_oa_rate_since_year',
         'is_in_scielo',
         'is_ojs',
         'is_core',
@@ -641,6 +639,9 @@ def build_sources(raw: pa.Table, max_year: int) -> dict[str, pa.Table]:
                 **{k: _field(stats, k) for k in ('2yr_mean_citedness', 'h_index', 'i10_index')},
                 'wikidata': o.wikidata(_field(raw['ids'], 'wikidata'), 'sources.ids.wikidata'),
                 **{c: raw[c] for c in same},
+                # renamed (user, 2026-10-30): an `is_` prefix always means a bool; these are years
+                'in_doaj_since_year': raw['is_in_doaj_since_year'],
+                'high_oa_rate_since_year': raw['is_high_oa_rate_since_year'],
             },
             ['source_id'],
         )
@@ -1331,6 +1332,9 @@ def write_readme(out_root: Path) -> None:
         '- OpenAlex IDs keep only their number (`https://openalex.org/I123` is `123`). External IDs drop their URL '
         'prefix: ROR, ORCID, and GRID are bare, Wikidata is the Q-number, and Wikipedia is `lang:Title`.',
         '- Dates are dates only. Columns typed `string (dictionary-encoded)` read as `category` in pandas.',
+        '- Nulls are real nulls in every type (null means unknown; `false` and `0` are values). Plain pandas widens '
+        'integer and bool columns that hold nulls to float and object; read with '
+        "`pd.read_parquet(dir, dtype_backend='pyarrow')` to keep exact types and nulls.",
         '',
         '| Table | Rows | Files | Size |',
         '|---|---:|---:|---:|',

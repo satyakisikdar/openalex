@@ -51,7 +51,9 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
     Record the chosen type and observed range per column in `notes.md`.
   - Cast with overflow checking (pyarrow `cast(..., safe=True)`) so a value outside the range fails loudly
     instead of wrapping.
-  - User-set exceptions: `sources.is_high_oa_rate_since_year` stays `int32`.
+  - User-set exceptions: `sources.high_oa_rate_since_year` (raw `is_high_oa_rate_since_year`) stays `int32`.
+  - `is_*` and `has_*` columns are always `bool` (user, 2026-10-30): the two raw `is_..._since_year` source
+    columns are years and are renamed `in_doaj_since_year` and `high_oa_rate_since_year`.
 - **OpenAlex IDs: keep only the numeric part** (`https://openalex.org/W2741809807` -> `2741809807`), stored
   as `int64` (author IDs such as `5317838346` already exceed `uint32`). Applies to every ID column,
   including ID lists once split into their own tables (`works_referenced_works.referenced_work_id`). Reuse the `convert_openalex_id_to_int` /
