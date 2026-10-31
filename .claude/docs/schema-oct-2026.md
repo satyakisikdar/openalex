@@ -424,7 +424,13 @@ institution IDs and country codes over the kept `works_authorships` rows; `works
 `volume_work_id` is null when the volume is not a work in the build (59,083); the 1,574 dangling rows of
 `works_corresponding_institutions` are dropped; `native_id` is kept pending the check of whether it equals the
 location DOI; malformed `raw_orcid` values are uppercased when that makes them valid, else null and logged.
-Approved as recommended: 3, 6, 7, 10, 11, 12, 15, 16, 17, 20. Nothing built. Abstracts are built last (decided) and are only sketched here.
+Approved as recommended: 3, 6, 7, 10, 11, 12, 15, 16, 17, 20.
+
+Types reviewed 2026-10-30 (full-data cardinality, `yoda:~/scratch/card_works.py`): `works_ids.mag` and `pmid` are
+`uint32` (max 3,217,811,007 and 42,865,813; MAG is frozen); `works_biblio.volume` and `issue` (about 111K and 89K
+distinct) and `works_locations.raw_type` (about 162K) are dict-encoded; `first_page`, `last_page` (2.7M distinct),
+`volume_name` (1.16M), `keyword_id` (1.88M), and `raw_source_name` (34.8M) stay strings. `fwci` is `float32` by
+choice: raw values carry up to 9 significant digits, so values above about 1,000 lose the 4th decimal. Nothing built. Abstracts are built last (decided) and are only sketched here.
 
 Raw: 464,765,485 works in 1,898 files (696 GB with abstracts), identical schema in every file, IDs unique (max
 7,221,746,310), none in `deleted_ids.csv.gz` (71,528,591 IDs). xpac works (137,776,075) and all their child rows

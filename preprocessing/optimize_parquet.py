@@ -295,11 +295,11 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('is_paratext', BOOL),
         DATES,
     ),
-    'works_ids': _schema(WORK, YEAR, ('mag', I64), ('pmid', I64), ('openalex_curation', STR)),
+    'works_ids': _schema(WORK, YEAR, ('mag', U32), ('pmid', U32), ('openalex_curation', STR)),
     'works_open_access': _schema(
         WORK, YEAR, ('is_oa', BOOL), ('oa_status', DICT), ('oa_url', STR), ('any_repository_has_fulltext', BOOL)
     ),
-    'works_biblio': _schema(WORK, YEAR, ('volume', STR), ('issue', STR), ('first_page', STR), ('last_page', STR)),
+    'works_biblio': _schema(WORK, YEAR, ('volume', DICT), ('issue', DICT), ('first_page', STR), ('last_page', STR)),
     'works_authorships': _schema(
         WORK,
         YEAR,
@@ -332,7 +332,7 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('is_accepted', BOOL),
         ('is_published', BOOL),
         ('raw_source_name', STR),
-        ('raw_type', STR),
+        ('raw_type', DICT),
         ('provenance', DICT),
     ),
     'works_topics': _schema(
@@ -1102,7 +1102,8 @@ def works_sql() -> dict[str, str]:
             left join (select work_id rid, n from nref) nr on nr.rid = oa_id(w.id, 'W', 'work id')
             left join (select work_id vid from yrs) vy on vy.vid = oa_id(w.volume.id, 'W', 'volume id') order by all""",
         'works_ids': child(
-            "cast(ids['mag'] as bigint) mag, pmid_clean(ids['pmid']) pmid, ids['openalex_curation'] openalex_curation",
+            "cast(ids['mag'] as uinteger) mag, pmid_clean(ids['pmid'])::uinteger pmid, "
+            "ids['openalex_curation'] openalex_curation",
             'ids',
         ),
         'works_open_access': child(

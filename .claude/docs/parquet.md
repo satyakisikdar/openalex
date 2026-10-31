@@ -66,7 +66,7 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
   | DOI | `https://doi.org/10.1000/xyz` | `10.1000/xyz` (string) | `https://doi.org/` + value |
   | ORCID | `https://orcid.org/0000-0002-1825-0097` | `0000-0002-1825-0097` (string; last char can be `X`) | `https://orcid.org/` + value |
   | ROR | `https://ror.org/02mhbdp94` | `02mhbdp94` (string) | `https://ror.org/` + value |
-  | PMID | `https://pubmed.ncbi.nlm.nih.gov/123` | `123` (`int64`) | prefix + value |
+  | PMID | `https://pubmed.ncbi.nlm.nih.gov/123` | `123` (`uint32` in `works_ids`; max 42,865,813) | prefix + value |
   | PMCID | `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123` | `123` (`int64`) | prefix + `PMC` + value |
   | Wikidata | `https://www.wikidata.org/wiki/Q123` | `123` (`int64`) | prefix + `Q` + value |
 
