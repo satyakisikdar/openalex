@@ -29,9 +29,10 @@
   - DuckDB: `struct = struct` is NULL when a nested field is NULL (and `not (x or NULL)` drops the row); compare
     structs with `is not distinct from`. A first awards count lost 270k investigator rows this way.
 
-  - Memory: `free` "used" includes the ZFS cache (ARC), uncapped (`zfs_arc_max` 0), which grew to 201 GB after
-    scans of the raw works and pushed swap to 30 of 31 GB; check `MemAvailable`, not "used". Long DuckDB jobs run at
-    a lower cap when it is under cap + 20 GB (works full run: 45 GB, with a watchdog on `MemAvailable`).
+  - Memory: `free` "used" includes the ZFS cache (ARC). Uncapped, it grew to 201 GB after scans of the raw works
+    and pushed swap to 30 of 31 GB. Since 2026-10-30 it is capped at 64 GiB (min 16 GiB; `/etc/modprobe.d/zfs.conf`,
+    persists across reboots), which left 159 GB available. Check `MemAvailable`, not "used"; run DuckDB at a lower
+    cap when it is under cap + 20 GB.
 
 ## Pipeline order (`__main__` in `flatten_openalex_files.py`)
 1. `flatten_merged_entries()` -> `<kind>_combined_merged_ids.parquet` (skip-ids). Must run before works.
