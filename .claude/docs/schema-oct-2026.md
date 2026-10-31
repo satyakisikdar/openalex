@@ -150,7 +150,7 @@ Old `subfield_name`, `field_name`, and `domain_name` are dropped (join on the ID
 ### Child tables
 | Table | Columns (type) | Rows | Note |
 |---|---|---|---|
-| `topics_keywords` (old) | topic_id uint16, keyword_id string, keyword string, score float32 | 101,671 | `keyword_id` is the slug; not derivable from the name in 6,997 cases |
+| `topics_keywords` (old) | topic_id uint16, keyword_id string, score float32 | 101,671 | `keyword_id` is the slug; not derivable from the name in 6,997 cases. The `keyword` name column was dropped 2026-10-30 (equal to `keywords.keyword_name` in every row; see Keywords) |
 | `subfields_display_name_alternatives` | subfield_id uint16, display_name_alternative string | 393 | |
 | `fields_display_name_alternatives` | field_id uint8, display_name_alternative string | 60 | |
 | `domains_display_name_alternatives` | domain_id uint8, display_name_alternative string | 6 | |

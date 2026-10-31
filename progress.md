@@ -1,6 +1,9 @@
 # Progress
 
 ## 2026-10-30
+- Keywords audited (`audit_keywords{,2}.log`) and built in `oct-2026/` (3 tables, 10,983,059 rows, 166 MB);
+  `topics_keywords` lost its `keyword` column (topics rebuilt); real write byte-identical to the dry run.
+  `oct-2026/` now has 53 tables. `works_keywords` will drop the 4 slugs missing from `keywords`.
 - Works converter written (`write_works`, DuckDB) with every works decision approved (`schema-oct-2026.md`); two
   100-file runs on the final code match the audit formulas, pass 22 consistency checks, and are byte-identical.
   Types tightened from full-data cardinality (uint32 MAG and PMID; dict volume, issue, raw_type). Full dry run next.

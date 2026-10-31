@@ -91,6 +91,11 @@ Top-level columns are identical across every file of each table. "New" = no old 
 - `primary_topic_id` comes from `topics[1].id` and `primary_topic_score` from `primary_topic.score`; the build
   fails if the two structs ever differ.
 
+## Benchmarks: keywords (oct-2026, built 2026-10-30)
+- In-memory pyarrow path: 3 tables, 10,983,059 rows, 166 MB (`keywords` 94 MB, mostly descriptions), about 36 s;
+  topics rebuilt alongside (8 tables, 106,928 rows, a few seconds). Real write byte-identical to the dry run
+  (34 files, md5); the 7 unchanged topic-hierarchy tables are byte-identical to their earlier build.
+
 ## Deleted and merged IDs (snapshot 2026-10-14)
 - Placeholder IDs for deleted entities (`src.optimize.DELETED_IDS`): work 4285719527, author 5317838346,
   institution 4389424196, source 4317411217. Only the institution one occurs: it is a real row in raw

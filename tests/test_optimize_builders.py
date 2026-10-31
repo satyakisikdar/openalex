@@ -513,7 +513,10 @@ def _work(wid: int, **kw) -> dict:
         'best_oa_location': loc,
         'primary_topic': topic,
         'topics': [topic],
-        'keywords': [{'id': f'{OA}keywords/kelp', 'display_name': 'kelp', 'score': 0.5}],
+        'keywords': [
+            {'id': f'{OA}keywords/kelp', 'display_name': 'kelp', 'score': 0.5},
+            {'id': f'{OA}keywords/not-in-keywords', 'display_name': 'x', 'score': 0.4},
+        ],
         'concepts': [],
         'mesh': [],
         'referenced_works': [],
@@ -621,7 +624,9 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     assert pq.read_table(out / 'works_corresponding_institutions').to_pylist() == [
         {'work_id': 2, 'publication_year': 2020, 'institution_id': 5}
     ]  # I77 (not in institutions) dropped
-    assert pq.read_table(out / 'works_keywords').column_names == ['work_id', 'publication_year', 'keyword_id', 'score']
+    kw = pq.read_table(out / 'works_keywords')
+    assert kw.column_names == ['work_id', 'publication_year', 'keyword_id', 'score']
+    assert set(kw.column('keyword_id').to_pylist()) == {'kelp'}  # slug missing from keywords dropped
     assert w[1]['doi'] is None and w[1]['title'] is None and w[1]['apc_paid_value'] == 90
     a = pq.read_table(out / 'works_authorships').to_pylist()
     assert [(r['author_order'], r['author_id'], r['institution_id'], r['country_code']) for r in a] == [
