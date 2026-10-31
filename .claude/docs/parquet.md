@@ -117,7 +117,11 @@ to the optimized outputs. The JSONL flattener (`flatten_openalex_files.py`) rema
     2025-2026); `publication_year` is null for them and their child rows.
   - Drop self-references (1,059,673 works cite themselves exactly once); log the count.
   - Dedupe MeSH rows (33,365,092 works list an identical entry more than once) and repeated authors (3,714,049
-    duplicate (work, author) pairs): one `works_authorships` row per work, author, and institution; log counts.
+    duplicate (work, author) pairs); log counts. The dedupe rule was refined the same day (next entry).
+- **Decided 2026-10-30** (works schema review): drop authorships with no author ID and those whose author is not in
+  `oct-2026/authors`; drop a repeated copy of an author only when its institution set (possibly empty) matches an
+  earlier copy; `works_topics` keeps topic, subfield, field, and domain names; location source fields other than
+  `source_id` are dropped (they live in the `sources` tables).
 - **Decided 2026-10-29:** `works_authorships` has no lineage expansion: one row per work, author, and named
   institution. `institution_lineage_level` and `assigned_institution` are dropped (derivable via
   `institutions_lineage`; list order was not depth).

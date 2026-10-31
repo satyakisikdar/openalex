@@ -450,3 +450,185 @@ def test_write_awards_duckdb_path(tmp_path, monkeypatch) -> None:
         {'award_id': 1, 'institution_id': 5},
         {'award_id': 2, 'institution_id': 5},
     ]
+
+
+def _work(wid: int, **kw) -> dict:
+    loc = {
+        'id': f'10.1/{wid}',
+        'doi': f'https://doi.org/10.1/{wid}',
+        'source': {'id': f'{OA}S3'},
+        'landing_page_url': 'https://x',
+        'pdf_url': None,
+        'version': 'publishedVersion',
+        'license': 'cc-by',
+        'is_oa': True,
+        'is_accepted': True,
+        'is_published': True,
+        'raw_source_name': 'J',
+        'raw_type': 'article',
+        'provenance': 'crossref',
+    }
+    topic = {
+        'id': f'{OA}T10055',
+        'display_name': 'T',
+        'score': 0.9,
+        'subfield': {'id': f'{OA}subfields/3312', 'display_name': 'S'},
+        'field': {'id': f'{OA}fields/33', 'display_name': 'F'},
+        'domain': {'id': f'{OA}domains/2', 'display_name': 'D'},
+    }
+    row = {
+        'id': f'{OA}W{wid}',
+        'doi': 'https://doi.org/',
+        'title': ' ',
+        'publication_year': 2020,
+        'publication_date': date(2020, 1, 1),
+        'type': 'article',
+        'language': 'en',
+        'is_xpac': False,
+        'ids': {'mag': '5', 'pmid': 'https://pubmed.ncbi.nlm.nih.gov/7', 'openalex_curation': None},
+        'authors_count': 0,
+        'locations_count': 1,
+        'referenced_works_count': 0,
+        'cited_by_count': 3,
+        'countries_distinct_count': 1,
+        'institutions_distinct_count': 1,
+        'fwci': 1.5,
+        'citation_normalized_percentile': {'value': 0.5, 'is_in_top_1_percent': False, 'is_in_top_10_percent': True},
+        'cited_by_percentile_year': {'min': 40, 'max': 50},
+        'apc_list': {'value': 100, 'currency': 'USD', 'value_usd': 100},
+        'apc_paid': {'value': 90.0, 'currency': 'USD', 'value_usd': 90.0},
+        'volume': {'id': None, 'display_name': None},
+        'has_fulltext': True,
+        'has_content': {'pdf': True, 'grobid_xml': False},
+        'is_retracted': False,
+        'is_paratext': False,
+        'updated_date': datetime(2026, 1, 2, 3, tzinfo=UTC),
+        'created_date': datetime(2025, 1, 1, tzinfo=UTC),
+        'open_access': {'is_oa': True, 'oa_status': 'gold', 'oa_url': '', 'any_repository_has_fulltext': False},
+        'biblio': {'volume': '1', 'issue': None, 'first_page': '', 'last_page': '9'},
+        'authorships': [],
+        'corresponding_institution_ids': [f'{OA}I5'],
+        'locations': [loc],
+        'best_oa_location': loc,
+        'primary_topic': topic,
+        'topics': [topic],
+        'keywords': [{'id': f'{OA}keywords/kelp', 'display_name': 'kelp', 'score': 0.5}],
+        'concepts': [],
+        'mesh': [],
+        'referenced_works': [],
+        'indexed_in': ['crossref'],
+        'counts_by_year': [{'year': 2025, 'cited_by_count': 3}],
+        'awards': [{'id': f'{OA}G9'}],
+        'funders': [{'id': f'{OA}F7'}],
+        'sustainable_development_goals': [{'id': 'https://metadata.un.org/sdg/3', 'score': 0.8}],
+        'study_designs': [{'id': f'{OA}study-designs/case-report'}],
+    }
+    return row | kw
+
+
+def _no_null_types(schema: pa.Schema) -> pa.Schema:
+    """Inferred all-null fields are pa.null(); raw has strings there (DuckDB rejects null-typed columns)."""
+
+    def fix(t: pa.DataType) -> pa.DataType:
+        if pa.types.is_null(t):
+            return pa.string()
+        if pa.types.is_struct(t):
+            return pa.struct([pa.field(f.name, fix(f.type)) for f in t])
+        if pa.types.is_list(t):
+            return pa.list_(fix(t.value_type))
+        return t
+
+    return pa.schema([pa.field(f.name, fix(f.type)) for f in schema])
+
+
+def _authorship(aid: int | None, insts: list[int], order_name: str) -> dict:
+    return {
+        'author': {'id': None if aid is None else f'{OA}A{aid}'},
+        'author_position': 'middle',
+        'raw_author_name': order_name,
+        'raw_orcid': 'https://orcid.org/0000-0002-1825-009x',
+        'is_corresponding': False,
+        'institutions': [{'id': f'{OA}I{i}'} for i in insts],
+        'raw_affiliation_strings': ['Univ', ' '],
+    }
+
+
+def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
+    import pyarrow.parquet as pq
+
+    m1 = {
+        'descriptor_ui': 'D1',
+        'descriptor_name': 'A',
+        'qualifier_ui': None,
+        'qualifier_name': None,
+        'is_major_topic': False,
+    }
+    authorships = [
+        _authorship(11, [5], 'first'),
+        _authorship(11, [5], 'same institutions: dropped'),
+        _authorship(11, [6], 'different institutions: kept'),
+        _authorship(None, [5], 'no author ID: dropped'),
+        _authorship(99, [], 'orphan author: dropped'),
+        _authorship(12, [], 'no institution'),
+    ]
+    rows = [
+        _work(
+            2,
+            authorships=authorships,
+            authors_count=6,
+            referenced_works=[f'{OA}W1', f'{OA}W2', f'{OA}W4285719527', f'{OA}W3', f'{OA}W8'],
+            concepts=[{'id': f'{OA}C4', 'score': 0.1}, {'id': f'{OA}C4', 'score': 0.2}],
+            mesh=[m1, m1 | {'is_major_topic': True}],
+        ),
+        _work(1, publication_year=None, publication_date=None),
+        _work(3, is_xpac=True),
+    ]
+    part = tmp_path / 'raw' / 'works' / 'updated_date=2026-08-26'
+    part.mkdir(parents=True)
+    table = pa.Table.from_pylist(rows)
+    pq.write_table(table.cast(_no_null_types(table.schema)), part / 'part_0000.parquet')
+    (tmp_path / 'ref' / 'authors').mkdir(parents=True)
+    pq.write_table(pa.table({'author_id': [11, 12]}), tmp_path / 'ref' / 'authors' / 'part-00000.parquet')
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'temp_directory', str(tmp_path / 'tmp'))
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'memory_limit', '1GB')
+    out = tmp_path / 'oct-2026'
+    manifests = op.write_works(out, 2027, '2026-10-14', raw_root=tmp_path / 'raw', ref_root=tmp_path / 'ref')
+    assert set(manifests) == {n for n in op.SCHEMAS if n.startswith('works')}
+    w = pq.read_table(out / 'works').to_pylist()
+    assert [r['work_id'] for r in w] == [1, 2]  # xpac work 3 skipped
+    assert w[1]['num_authors'] == 2 and w[1]['num_authorships'] == 6 and w[1]['has_complete_institution_info'] is False
+    assert w[1]['doi'] is None and w[1]['title'] is None and w[1]['apc_paid_value'] == 90
+    a = pq.read_table(out / 'works_authorships').to_pylist()
+    assert [(r['author_order'], r['author_id'], r['institution_id']) for r in a] == [
+        (1, 11, 5),
+        (3, 11, 6),
+        (6, 12, None),
+    ]
+    assert a[0]['raw_orcid'] == '0000-0002-1825-009X' and a[0]['raw_affiliation_string'] == 'Univ'
+    refs = pq.read_table(out / 'works_referenced_works').to_pylist()
+    assert refs == [
+        {'work_id': 2, 'work_publication_year': 2020, 'referenced_work_id': 1, 'referenced_work_publication_year': None}
+    ]  # self, placeholder, xpac, and missing dropped
+    concepts = pq.read_table(out / 'works_concepts').to_pylist()
+    assert len(concepts) == 1 and abs(concepts[0]['score'] - 0.1) < 1e-6  # first occurrence kept
+    mesh = pq.read_table(out / 'works_mesh').to_pylist()
+    assert len(mesh) == 1 and mesh[0]['is_major_topic'] is True
+    loc = pq.read_table(out / 'works_locations').to_pylist()[0]
+    assert loc['is_primary'] and loc['is_best_oa'] and loc['doi'] == '10.1/1' and loc['source_id'] == 3
+    t = pq.read_table(out / 'works_topics').to_pylist()[0]
+    assert (t['topic_id'], t['subfield_id'], t['field_id'], t['domain_id'], t['is_primary_topic']) == (
+        10055,
+        3312,
+        33,
+        2,
+        True,
+    )
+    assert pq.read_table(out / 'works_ids').to_pylist()[0] | {} == {
+        'work_id': 1,
+        'publication_year': None,
+        'mag': 5,
+        'pmid': 7,
+        'openalex_curation': None,
+    }
+    assert pq.read_table(out / 'works_sustainable_development_goals').to_pylist()[0]['sdg_id'] == 3
+    assert pq.read_table(out / 'works_study_designs').to_pylist()[0]['study_design'] == 'case-report'

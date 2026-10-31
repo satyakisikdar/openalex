@@ -414,7 +414,7 @@ The award-work link is `works.awards` and will be built with works as `works_awa
 
 # Works
 
-**Status: proposed 2026-10-30.** Nothing built. Abstracts are built last (decided) and are only sketched here.
+**Status: proposed 2026-10-30; decided so far: 1, 2, 8, 18, and 19 (marked DECIDED below).** Nothing built. Abstracts are built last (decided) and are only sketched here.
 
 Raw: 464,765,485 works in 1,898 files (696 GB with abstracts), identical schema in every file, IDs unique (max
 7,221,746,310), none in `deleted_ids.csv.gz` (71,528,591 IDs). xpac works (137,776,075) and all their child rows
@@ -431,7 +431,7 @@ counts distinct author IDs; `publication_year` on every table; no lineage expans
 `works_related_works`; drop the 4,887,757 placeholder references (W4285719527) and the 1,059,673 self-references;
 keep the 3,168,890 no-year works with a null year; dedupe MeSH and repeated authors; `language` dict-encoded.
 
-19 tables. Without `works_abstracts` (180,705,981, built last): 18 tables, 13,018,972,487 rows as proposed (Decision 4
+19 tables. Without `works_abstracts` (180,705,981, built last): 18 tables, 12,946,589,803 rows as proposed (Decision 4
 adds about 1.4B; declining Decision 5 adds 122,945,088). Output size is measured at the
 dry run; `/data` has 2.0 TB free.
 
@@ -475,7 +475,7 @@ dry run; `/data` has 2.0 TB free.
 | `works_ids` (old) | mag int64, pmid int64, openalex_curation string | 326,989,410 (1 per work) | 190,001,736 MAG, 40,941,838 PMID (0 malformed), 2,265 curation IDs (**new**, e.g. `oxjob747-...`). `pmcid` is gone from raw |
 | `works_open_access` (old) | is_oa bool, oa_status dict (6), oa_url string, any_repository_has_fulltext bool | 326,989,410 | oa_url 127,446,679 non-null (176,022 contain spaces, kept); 126 open works have no URL |
 | `works_biblio` (old) | volume, issue, first_page, last_page string | 326,989,410 | gains `publication_year`; 206 empty volumes and 5,615 empty first pages stored null |
-| `works_authorships` (old) | author_order uint16, author_position dict (3), author_id int64, raw_author_name string, raw_orcid string, is_corresponding bool, institution_id int64, raw_affiliation_string string | 1,017,785,385 | one row per (work, author, institution): 945,906,247 for authors with an ID (813,751,408 pairs) plus 71,879,138 for the 64,718,630 authorships with no author ID (37,011,934 with no institution). Dedupe removes 3,714,049 repeated copies in 1,967,330 works (4,112,506 rows). Decisions 1 to 3. Orphans kept, like authors: 783,770 rows point to 655,353 author IDs not in `oct-2026/authors` (535 rows carry the one ID `9999999999`), and 9,772 rows to 123 institution IDs not in `oct-2026/institutions`. `raw_affiliation_string`: the strings joined by `;` (1,542,774 empty elements); orphan counts are raw authorships, before dedupe. Decision 18 |
+| `works_authorships` (old) | author_order uint16, author_position dict (3), author_id int64, raw_author_name string, raw_orcid string, is_corresponding bool, institution_id int64, raw_affiliation_string string | 945,402,701 | one row per kept authorship copy and institution (null when it has none), `audit_works7.log`. Dropped: the 64,718,630 authorships with no author ID, 774,000 copies of 655,353 orphan author IDs, and repeated copies of an author with the same institution set (813,332,439 non-orphan copies kept as 812,977,432 work-author pairs plus 355,007 copies with a different set, in 339,625 pairs; such an author can repeat an institution under two `author_order` values). 285,379,865 works keep at least one authorship. 9,451 rows name 123 institutions not in `oct-2026/institutions` (kept, pending your answer). `raw_affiliation_string`: the copy's strings joined by `;`. Matches audit7 exactly on a one-file smoke test |
 | `works_corresponding_institutions` | institution_id int64 | 129,921,067 | **new**; not derivable (differs from the corresponding authors' institutions in 32,021,718 works); 0 repeats; 1,574 dangling, kept |
 | `works_locations` (old) | location_order uint16, is_primary bool, is_best_oa bool, native_id string, source_id int64, doi string, landing_page_url string, pdf_url string, version dict, license dict, is_oa bool, is_accepted bool, is_published bool, raw_source_name string, raw_type string, provenance dict | 493,204,605 | replaces `works_primary_location` and `works_best_oa_location` (Decision 6). Primary is always order 1; best OA is always in the list (127,446,652 works). source_id 441,063,741 non-null, 0 orphans. Location DOI differs from the work DOI for 6,234,659 primaries (kept). version: 3 values plus 135,233,215 null; license 10; provenance 6 (crossref, repo, mag, datacite, pubmed, curation). 76,644 landing and 171,387 PDF URLs contain spaces, kept |
 | `works_topics` (old) | is_primary_topic bool, score float32, topic_id uint16, topic_name dict, subfield_id uint16, subfield_name dict, field_id uint8, field_name dict, domain_id uint8, domain_name dict | 909,866,043 | the exact may-2025 column list (your directive), types tightened; Decision 8. At most 3 per work; primary is always first; 0 orphans; every name and hierarchy ID matches `oct-2026/topics` |
@@ -502,12 +502,14 @@ dry run; `/data` has 2.0 TB free.
 | `primary_location`, `best_oa_location` | primary is `locations[1]` in every work; best OA is always in `locations`: kept as `is_primary`, `is_best_oa` |
 | `primary_topic` | always `topics[1]`: kept as `is_primary_topic` |
 | `authorships.author.display_name`, `.orcid` | match `oct-2026/authors` in all 816,681,687 joined authorships (213 ORCIDs differ only in the case of `X`); the 783,770 orphan authorships lose them, Decision 18 |
-| `authorships.author.observed_orcids` | **not audited**; Decision 14 |
+| `authorships.author.observed_orcids` | one list per author everywhere (95,615,945 authors); equals `oct-2026/authors_observed_orcids` in all but 4,398 of 438,136,797 non-empty authorships: 3,929 are orphan authors (dropped) and the rest list one ORCID twice with `x` and `X` (`audit_works7.log`) |
 | `authorships.institutions` name, ROR, country, type | match `oct-2026/institutions` in all 646,739,289 joined rows; the 9,772 orphan rows lose them, Decision 18 |
 | `authorships.institutions.lineage` | matches `institutions_lineage` (0 differences over 125,777 variants) |
 | `authorships.raw_affiliation_strings` | the same set as `affiliations[].raw_affiliation_string` in all 882,184,087 authorships |
 | location `source` name, ISSN-L, type, host organization | match `oct-2026/sources` in all 441,063,741 |
-| location `source` ISSN list, `is_oa`, `is_in_doaj`, `is_core`, `listed_in`, host name and lineage | **not compared**; Decision 19 |
+| location `source` ISSN list, `is_in_doaj`, `is_core`, `listed_in`, host name | match `oct-2026/sources`, `sources_issn`, and `sources_listed_in` in all 441,063,741 (`audit_works7.log`) |
+| location `source.is_oa` | stale copy: false in 11,701,300 locations (15,572 sources) where `sources.is_oa` is true (`audit_works7b.log`); dropped (decided) |
+| location `source` host lineage and lineage names | without the host itself, equals `sources_host_organization_lineage` in all but 3,767,825 locations (1,270 sources), where the built table has more ancestors (`audit_works7b.log`); lineage names of publisher IDs can't be checked (no publishers table); dropped (decided) |
 | location `license_id` | equals `https://openalex.org/licenses/` + `license` in all 493,204,605 |
 | topic names and subfield, field, domain IDs and names | match `oct-2026/topics`, `subfields`, `fields`, and `domains` in all 909,866,043 (kept in `works_topics` per Decision 8) |
 | concept `display_name`, `level`, `wikidata` | match `oct-2026/concepts` in all 2,983,710,684 |
@@ -516,11 +518,13 @@ dry run; `/data` has 2.0 TB free.
 | SDG and study design `display_name` | constant per ID (17 and 7 pairs) |
 
 ## Decisions for the user
-1. **Repeated authors** (3,714,049 extra copies of a (work, author) pair in 1,967,330 works; the copies disagree on
+1. **DECIDED 2026-10-30: drop a repeated copy of an author only when its institution set (possibly empty) equals
+   an earlier copy's; copies with a different set are kept as their own `author_order` rows.** Counts from
+   `audit_works7.log`. Was: **Repeated authors** (3,714,049 extra copies of a (work, author) pair in 1,967,330 works; the copies disagree on
    institutions 355,031 times, position 1,159,371, name 1,146,255, corresponding flag 321,056, raw strings 473,387).
    Recommended: `author_order`, `author_position`, and `raw_author_name` from the first copy; `is_corresponding`
    true if any copy is; institutions and raw strings unioned. 1,017,785,385 rows.
-2. **Authorships with no author ID** (64,718,630; the old flattener dropped them). Recommended: keep them with a
+2. **DECIDED 2026-10-30: drop them (and log the count).** Was: **Authorships with no author ID** (64,718,630; the old flattener dropped them). Recommended: keep them with a
    null `author_id` and `author_order` (list position, 1-based), so names and affiliations of unmatched authors
    survive. 71,879,138 rows.
 3. **`raw_orcid`** (new; 147,793,139 non-null, 323 with a lowercase `x`). Recommended: keep, bare form with an
@@ -540,7 +544,7 @@ dry run; `/data` has 2.0 TB free.
    not derivable). Recommended.
 7. **1:1 old tables** `works_ids`, `works_open_access`, `works_biblio` stay separate, one row per work; the new 1:1
    fields go in `works`. Recommended.
-8. **`works_topics` with names** (your directive to match the existing table; dict-encoded, so cheap) versus IDs
+8. **DECIDED 2026-10-30: keep topic, subfield, field, and domain names.** Was: **`works_topics` with names** (your directive to match the existing table; dict-encoded, so cheap) versus IDs
    only (the convention elsewhere). Recommended: with names, as you asked.
 9. **Keyword names** are not constant per ID in 22 slugs (`massachusetts` is both "Massachusetts" and "mechanical
    alloying"). Recommended: keep `keyword` (the old column) next to `keyword_id`, dict-encoded; no lookup table.
@@ -560,10 +564,10 @@ dry run; `/data` has 2.0 TB free.
     affiliation strings). Recommended, as everywhere else.
 17. **Build with capped DuckDB**, one statement per table, dedupe done per work with list functions (a global
     group-by over the 817M authorships ran out of memory at 60 GB in `audit_works6`). Recommended.
-18. **Orphans lose their nested details.** The 783,770 authorships whose author ID is not in `oct-2026/authors` lose
+18. **DECIDED 2026-10-30: drop authorships whose author ID is not in `oct-2026/authors`.** Was: **Orphans lose their nested details.** The 783,770 authorships whose author ID is not in `oct-2026/authors` lose
     the author's name and ORCID copy, and the 9,772 rows with an institution not in `oct-2026/institutions` lose
     its name, ROR, country, and type. Recommended: accept (IDs and raw strings are kept; under 0.1%).
-19. **Location source fields not compared** (ISSN list, OA, DOAJ, core flags, `listed_in`, host name and lineage).
+19. **DECIDED 2026-10-30: drop them** (audited anyway in `audit_works7.log`). Was: **Location source fields not compared** (ISSN list, OA, DOAJ, core flags, `listed_in`, host name and lineage).
     Recommended: drop; they describe the source and live in the `sources` tables. Say if you want a check first.
 20. **`corresponding_author_ids`** matches the `is_corresponding` authorships in all but 1 work (W4283721846).
     Recommended: drop the column and log that work.

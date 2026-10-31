@@ -54,6 +54,7 @@ def _schema(*fields: tuple[str, pa.DataType] | list[tuple[str, pa.DataType]]) ->
 
 INST, SRC, AUTH, FUND = ('institution_id', I64), ('source_id', I64), ('author_id', I64), ('funder_id', I64)
 AWARD = ('award_id', I64)
+WORK, YEAR = ('work_id', I64), ('publication_year', U16)
 STATS = [('2yr_mean_citedness', F32), ('h_index', U16), ('i10_index', U32)]
 WIKI = [('wikidata', U32), ('wikipedia', STR)]
 
@@ -255,6 +256,117 @@ SCHEMAS: dict[str, pa.Schema] = {
     'authors_counts_by_year': _schema(
         AUTH, ('year', U16), ('num_works', U32), ('num_oa_works', U32), ('num_citations', U32)
     ),
+    'works': _schema(
+        WORK,
+        ('doi', STR),
+        ('title', STR),
+        YEAR,
+        ('publication_date', DATE),
+        ('type', DICT),
+        ('language', DICT),
+        ('num_authors', U16),
+        ('num_authorships', U16),
+        ('num_locations', U16),
+        ('num_references', U16),
+        ('num_citations', U32),
+        ('num_countries', U8),
+        ('num_institutions', U16),
+        ('fwci', F32),
+        ('citation_percentile', F32),
+        ('is_in_top_1_percent', BOOL),
+        ('is_in_top_10_percent', BOOL),
+        ('cited_by_percentile_year_min', U8),
+        ('cited_by_percentile_year_max', U8),
+        ('apc_list_value', U32),
+        ('apc_list_currency', DICT),
+        ('apc_list_usd', U16),
+        ('apc_paid_value', U32),
+        ('apc_paid_currency', DICT),
+        ('apc_paid_usd', U32),
+        ('volume_work_id', I64),
+        ('volume_name', STR),
+        ('has_complete_institution_info', BOOL),
+        ('has_grant_info', BOOL),
+        ('has_keywords', BOOL),
+        ('has_fulltext', BOOL),
+        ('has_pdf', BOOL),
+        ('has_grobid_xml', BOOL),
+        ('is_retracted', BOOL),
+        ('is_paratext', BOOL),
+        DATES,
+    ),
+    'works_ids': _schema(WORK, YEAR, ('mag', I64), ('pmid', I64), ('openalex_curation', STR)),
+    'works_open_access': _schema(
+        WORK, YEAR, ('is_oa', BOOL), ('oa_status', DICT), ('oa_url', STR), ('any_repository_has_fulltext', BOOL)
+    ),
+    'works_biblio': _schema(WORK, YEAR, ('volume', STR), ('issue', STR), ('first_page', STR), ('last_page', STR)),
+    'works_authorships': _schema(
+        WORK,
+        YEAR,
+        ('author_order', U16),
+        ('author_position', DICT),
+        AUTH,
+        ('raw_author_name', STR),
+        ('raw_orcid', STR),
+        ('is_corresponding', BOOL),
+        INST,
+        ('raw_affiliation_string', STR),
+    ),
+    'works_corresponding_institutions': _schema(WORK, YEAR, INST),
+    'works_locations': _schema(
+        WORK,
+        YEAR,
+        ('location_order', U16),
+        ('is_primary', BOOL),
+        ('is_best_oa', BOOL),
+        ('native_id', STR),
+        SRC,
+        ('doi', STR),
+        ('landing_page_url', STR),
+        ('pdf_url', STR),
+        ('version', DICT),
+        ('license', DICT),
+        ('is_oa', BOOL),
+        ('is_accepted', BOOL),
+        ('is_published', BOOL),
+        ('raw_source_name', STR),
+        ('raw_type', STR),
+        ('provenance', DICT),
+    ),
+    'works_topics': _schema(
+        WORK,
+        YEAR,
+        ('is_primary_topic', BOOL),
+        ('score', F32),
+        ('topic_id', U16),
+        ('topic_name', DICT),
+        ('subfield_id', U16),
+        ('subfield_name', DICT),
+        ('field_id', U8),
+        ('field_name', DICT),
+        ('domain_id', U8),
+        ('domain_name', DICT),
+    ),
+    'works_keywords': _schema(WORK, YEAR, ('keyword_id', STR), ('keyword', DICT), ('score', F32)),
+    'works_concepts': _schema(WORK, YEAR, ('concept_id', I64), ('score', F32)),
+    'works_mesh': _schema(
+        WORK,
+        YEAR,
+        ('descriptor_ui', DICT),
+        ('descriptor_name', DICT),
+        ('qualifier_ui', DICT),
+        ('qualifier_name', DICT),
+        ('is_major_topic', BOOL),
+    ),
+    'works_referenced_works': _schema(
+        WORK, ('work_publication_year', U16), ('referenced_work_id', I64), ('referenced_work_publication_year', U16)
+    ),
+    'works_indexed_in': _schema(WORK, YEAR, ('indexed_source', DICT)),
+    'works_counts_by_year': _schema(WORK, YEAR, ('year', U16), ('num_citations', U32)),
+    'works_awards': _schema(WORK, YEAR, AWARD),
+    'works_funders': _schema(WORK, YEAR, FUND),
+    'works_sustainable_development_goals': _schema(WORK, YEAR, ('sdg_id', U8), ('score', F32)),
+    'works_study_designs': _schema(WORK, YEAR, ('study_design', DICT)),
 }
 
 
@@ -312,6 +424,28 @@ DESCRIPTIONS: dict[str, str] = {
     'authors_concepts': 'Top concepts of each author (at most 5) with score and work counts.',
     'authors_sources': 'Sources each author has published in.',
     'authors_counts_by_year': 'Works, open-access works, and citations per author per year.',
+    'works': 'One row per work (xpac works excluded): DOI, title, year, type, language, counts, citation metrics, '
+    'APCs, and flags. `num_authors` counts distinct authors in `works_authorships`; `num_authorships` is the raw '
+    'authorship list length.',
+    'works_ids': 'External identifiers per work: MAG ID, PubMed ID, and OpenAlex curation ID.',
+    'works_open_access': 'Open-access status per work, with the best open-access URL.',
+    'works_biblio': 'Volume, issue, and pages per work.',
+    'works_authorships': 'One row per work, author, and institution (null when the author has none). Repeated '
+    'copies of an author with the same institutions are dropped; `author_order` is the position in the byline.',
+    'works_corresponding_institutions': 'Institutions OpenAlex lists as corresponding for each work.',
+    'works_locations': 'Every location (version) of each work, with its source, URLs, license, and version; '
+    '`is_primary` and `is_best_oa` mark the primary and best open-access location.',
+    'works_topics': 'Topics of each work (at most 3) with score and the topic hierarchy names.',
+    'works_keywords': 'Keywords of each work: slug, name, and score.',
+    'works_concepts': 'Legacy concepts of each work with score.',
+    'works_mesh': 'MeSH descriptors and qualifiers of each work (one row per descriptor and qualifier).',
+    'works_referenced_works': 'References between works in this build, with the publication year of both works.',
+    'works_indexed_in': 'Indexes each work appears in (crossref, datacite, pubmed, doaj, arxiv).',
+    'works_counts_by_year': 'Citations received per work per year (2012 onward).',
+    'works_awards': 'Awards (grants) that funded each work; details in `awards`.',
+    'works_funders': 'Funders of each work; details in `funders`.',
+    'works_sustainable_development_goals': 'UN Sustainable Development Goals (1 to 17) of each work with score.',
+    'works_study_designs': 'Study designs of each work (for example `case-report`).',
 }
 
 
@@ -897,6 +1031,204 @@ def write_awards(out_root: Path, max_year: int, snapshot: str, raw_root: Path = 
     return {name: _write_sql(con, name, sql, out_root, snapshot, 'awards') for name, sql in awards_sql().items()}
 
 
+WORKS_MACROS = r"""
+create or replace macro blank(s) as case when trim(s) = '' then null else s end;
+create or replace macro doi_strip(s) as nullif(regexp_replace(s, '^https?://(dx\.)?doi\.org/', ''), '');
+create or replace macro slug(s, p, label) as case when s is null then null
+  when starts_with(s, p) and length(s) > length(p) then substr(s, length(p) + 1)
+  else error('bad ' || label || ': ' || s) end;
+create or replace macro pmid_clean(s) as case when s is null then null
+  when regexp_full_match(s, 'https://pubmed\.ncbi\.nlm\.nih\.gov/[0-9]+')
+    then cast(regexp_extract(s, '([0-9]+)$', 1) as bigint)
+  else error('bad PMID: ' || s) end;
+create or replace macro sdg_id(s) as case when regexp_full_match(s, 'https://metadata\.un\.org/sdg/[0-9]+')
+  then cast(regexp_extract(s, '([0-9]+)$', 1) as utinyint) else error('bad SDG id: ' || s) end;
+"""
+PLACEHOLDER_WORK = o.DELETED_IDS['work']
+# A copy of an author is dropped when an earlier copy in the same work has the same author ID and institution set
+# (user, 2026-10-30). Same keys as audit_works7 (`ka`), so the row count can be checked against that log.
+AUTHOR_KEYS = """list_transform(authorships, lambda e: {'a': e.author.id,
+    'i': list_sort(list_distinct(list_transform(e.institutions, lambda i: i.id)))})"""
+
+
+def _mesh_key(x: str) -> str:
+    return f"{{'d': {x}.descriptor_ui, 'q': coalesce({x}.qualifier_ui, '')}}"
+
+
+def works_sql() -> dict[str, str]:
+    """One SELECT per works table over the non-xpac view `w` (spec: schema-oct-2026.md, Works)."""
+    wid = "oa_id(id, 'W', 'work id') work_id, publication_year::usmallint publication_year"
+
+    def child(cols: str, src: str, where: str = '') -> str:
+        return f'select {wid}, {cols} from (select id, publication_year, {src} from w) {where} order by all'
+
+    return {
+        'works': """select oa_id(w.id, 'W', 'work id') work_id, doi_strip(doi) doi, blank(title) title,
+            publication_year::usmallint publication_year, publication_date, type, blank(language) language,
+            n_auth::usmallint num_authors, authors_count::usmallint num_authorships,
+            locations_count::usmallint num_locations, referenced_works_count::usmallint num_references,
+            cited_by_count::uinteger num_citations, countries_distinct_count::utinyint num_countries,
+            institutions_distinct_count::usmallint num_institutions, fwci::float fwci,
+            citation_normalized_percentile.value::float citation_percentile,
+            citation_normalized_percentile.is_in_top_1_percent is_in_top_1_percent,
+            citation_normalized_percentile.is_in_top_10_percent is_in_top_10_percent,
+            cited_by_percentile_year.min::utinyint cited_by_percentile_year_min,
+            cited_by_percentile_year.max::utinyint cited_by_percentile_year_max,
+            apc_list.value::uinteger apc_list_value, blank(apc_list.currency) apc_list_currency,
+            apc_list.value_usd::usmallint apc_list_usd, apc_paid.value::uinteger apc_paid_value,
+            blank(apc_paid.currency) apc_paid_currency, apc_paid.value_usd::uinteger apc_paid_usd,
+            oa_id(volume.id, 'W', 'volume id') volume_work_id, blank(volume.display_name) volume_name,
+            n_auth > 0 and n_noinst = 0 has_complete_institution_info, len(awards) > 0 has_grant_info,
+            len(keywords) > 0 has_keywords, has_fulltext, has_content.pdf has_pdf,
+            has_content.grobid_xml has_grobid_xml,
+            is_retracted, is_paratext, updated_date::date updated_date, created_date::date created_date
+            from (select w.*,
+                len(list_distinct(list_filter(list_transform(authorships, lambda s: s.author.id),
+                    lambda x: x is not null))) - coalesce(o.n_orph, 0) n_auth,
+                len(list_filter(authorships, lambda s: s.author.id is not null and len(s.institutions) = 0))
+                    - coalesce(o.n_orph_noinst, 0) n_noinst
+              from w left join orph o using (id)) w order by all""",
+        'works_ids': child(
+            "cast(ids['mag'] as bigint) mag, pmid_clean(ids['pmid']) pmid, ids['openalex_curation'] openalex_curation",
+            'ids',
+        ),
+        'works_open_access': child(
+            'open_access.is_oa is_oa, open_access.oa_status oa_status, blank(open_access.oa_url) oa_url, '
+            'open_access.any_repository_has_fulltext any_repository_has_fulltext',
+            'open_access',
+        ),
+        'works_biblio': child(
+            'blank(biblio.volume) volume, blank(biblio.issue) issue, blank(biblio.first_page) first_page, '
+            'blank(biblio.last_page) last_page',
+            'biblio',
+        ),
+        'works_authorships': f"""select work_id, publication_year, author_order, author_position, author_id,
+            raw_author_name, raw_orcid, is_corresponding, oa_id(inst, 'I', 'institution id') institution_id,
+            raw_affiliation_string from (
+              select {wid}, j::usmallint author_order, e.author_position author_position,
+                oa_id(e.author.id, 'A', 'author id') author_id, blank(e.raw_author_name) raw_author_name,
+                orcid_any(e.raw_orcid) raw_orcid, e.is_corresponding is_corresponding,
+                unnest(case when len(e.institutions) = 0 then [null]
+                            else list_transform(e.institutions, lambda i: i.id) end) inst,
+                nullif(array_to_string(list_filter(e.raw_affiliation_strings, lambda r: trim(r) <> ''), ';'), '')
+                  raw_affiliation_string
+              from (select id, publication_year, unnest(authorships) e, unnest(generate_series(1, len(authorships))) j,
+                      unnest(list_transform(k, lambda kk, i: list_position(k, kk) = i)) keep
+                    from (select id, publication_year, authorships, {AUTHOR_KEYS} k from w))
+              where keep and e.author.id is not null) x
+            semi join known on x.author_id = known.author_id order by all""",
+        'works_corresponding_institutions': child(
+            "oa_id(c, 'I', 'corresponding institution id') institution_id", 'unnest(corresponding_institution_ids) c'
+        ),
+        'works_locations': child(
+            'j::usmallint location_order, j = 1 is_primary, coalesce(bpos = j, false) is_best_oa, l.id native_id, '
+            "oa_id(l.source.id, 'S', 'source id') source_id, doi_strip(l.doi) doi, "
+            'blank(l.landing_page_url) landing_page_url, blank(l.pdf_url) pdf_url, l.version version, '
+            'l.license license, l.is_oa is_oa, l.is_accepted is_accepted, l.is_published is_published, '
+            'blank(l.raw_source_name) raw_source_name, blank(l.raw_type) raw_type, l.provenance provenance',
+            'unnest(locations) l, unnest(generate_series(1, len(locations))) j, '
+            'list_position(locations, best_oa_location) bpos',
+        ),
+        'works_topics': child(
+            "j = 1 is_primary_topic, t.score::float score, oa_id(t.id, 'T', 'topic id')::usmallint topic_id, "
+            "t.display_name topic_name, oa_id(t.subfield.id, 'subfields/', 'subfield id')::usmallint subfield_id, "
+            "t.subfield.display_name subfield_name, oa_id(t.field.id, 'fields/', 'field id')::utinyint field_id, "
+            "t.field.display_name field_name, oa_id(t.domain.id, 'domains/', 'domain id')::utinyint domain_id, "
+            't.domain.display_name domain_name',
+            'unnest(topics) t, unnest(generate_series(1, len(topics))) j',
+        ),
+        'works_keywords': child(
+            "slug(k.id, 'https://openalex.org/keywords/', 'keyword id') keyword_id, k.display_name keyword, "
+            'k.score::float score',
+            'unnest(keywords) k',
+        ),
+        'works_concepts': child(
+            "oa_id(c.id, 'C', 'concept id') concept_id, c.score::float score",
+            'unnest(concepts) c, unnest(list_transform(concepts, lambda x, i: '
+            'list_position(list_transform(concepts, lambda y: y.id), x.id) = i)) keep',
+            'where keep',
+        ),
+        'works_mesh': child(
+            'e.descriptor_ui descriptor_ui, e.descriptor_name descriptor_name, e.qualifier_ui qualifier_ui, '
+            'e.qualifier_name qualifier_name, '
+            f'list_bool_or(list_transform(list_filter(mesh, lambda f: {_mesh_key("f")} = {_mesh_key("e")}), '
+            'lambda f: f.is_major_topic)) is_major_topic',
+            f'mesh, unnest(mesh) e, unnest(list_transform(mesh, lambda x, i: list_position('
+            f'list_transform(mesh, lambda y: {_mesh_key("y")}), {_mesh_key("x")}) = i)) keep',
+            'where keep',
+        ),
+        'works_referenced_works': f"""select r.work_id, r.work_publication_year, r.referenced_work_id,
+            y.publication_year referenced_work_publication_year
+            from (select oa_id(id, 'W', 'work id') work_id, publication_year::usmallint work_publication_year,
+                    oa_id(rr, 'W', 'referenced work id') referenced_work_id
+                  from (select id, publication_year, unnest(referenced_works) rr from w)) r
+            join yrs y on y.work_id = r.referenced_work_id
+            where r.referenced_work_id <> {PLACEHOLDER_WORK} and r.referenced_work_id <> r.work_id
+            order by all""",
+        'works_indexed_in': child('x indexed_source', 'unnest(indexed_in) x'),
+        'works_counts_by_year': child(
+            'c.year::usmallint as "year", c.cited_by_count::uinteger num_citations', 'unnest(counts_by_year) c'
+        ),
+        'works_awards': child("oa_id(x.id, 'G', 'award id') award_id", 'unnest(awards) x'),
+        'works_funders': child("oa_id(x.id, 'F', 'funder id') funder_id", 'unnest(funders) x'),
+        'works_sustainable_development_goals': child(
+            'sdg_id(x.id) sdg_id, x.score::float score', 'unnest(sustainable_development_goals) x'
+        ),
+        'works_study_designs': child(
+            "slug(x.id, 'https://openalex.org/study-designs/', 'study design id') study_design",
+            'unnest(study_designs) x',
+        ),
+    }
+
+
+def write_works(
+    out_root: Path, max_year: int, snapshot: str, raw_root: Path = RAW_ROOT, ref_root: Path | None = None
+) -> dict[str, dict[str, Any]]:
+    """Works tables via capped DuckDB. `ref_root` holds the built `authors` table (orphan authors are dropped)."""
+    del max_year  # years outside 1500 to max_year are kept as reported (spec Decision 15)
+    ref_root = ref_root or out_root
+    con = duckdb_connection(f"'{raw_root}/works/*/*.parquet'")
+    con.execute(WORKS_MACROS)
+    con.execute('create or replace temp view w as select * from a where not is_xpac')
+    con.execute(
+        f"create or replace temp table known as select author_id from read_parquet('{ref_root}/authors/*.parquet')"
+    )
+    con.execute(
+        "create or replace temp table yrs as select oa_id(id, 'W', 'work id') work_id, "
+        'publication_year::usmallint publication_year from w'
+    )
+    # Per work: distinct orphan authors, and orphan copies with no institution (they leave num_authors and
+    # has_complete_institution_info, since their rows are dropped from works_authorships).
+    con.execute("""create or replace temp table orph as
+        select id, count(distinct aid) n_orph, count(*) filter (where noinst) n_orph_noinst
+        from (select id, oa_id(s.author.id, 'A', 'author id') aid, len(s.institutions) = 0 noinst
+              from (select id, unnest(authorships) s from w) where s.author.id is not null) x
+        anti join known k on x.aid = k.author_id group by id""")
+    row = con.execute(
+        f"""select (select count(*) from a where is_xpac), (select count(*) from w),
+        (select count(*) from w where primary_topic is distinct from topics[1]),
+        (select count(*) from w where apc_paid.value <> floor(apc_paid.value)
+            or apc_paid.value_usd <> floor(apc_paid.value_usd)),
+        (select sum(n_orph) from orph),
+        (select count(*) from (select unnest(authorships) s from w) where s.author.id is null),
+        (select count(*) from (select id, unnest(referenced_works) r from w) where r = id),
+        (select count(*) from (select unnest(referenced_works) r from w) where r = 'https://openalex.org/W{PLACEHOLDER_WORK}')"""
+    ).fetchall()  # fetchall, not fetchone: an unfinished result blocks the connection
+    xpac, n, topic_ne, apc_frac, orphans, null_authors, self_refs, placeholders = row[0]
+    log.info('works: %s non-xpac works, %s xpac works skipped', f'{n:,}', f'{xpac:,}')
+    log.info(
+        'works dropped: %s authorships with no author ID, %s orphan author IDs (summed per work), '
+        '%s self-references, %s placeholder references',
+        *(f'{v or 0:,}' for v in (null_authors, orphans, self_refs, placeholders)),
+    )
+    if topic_ne or apc_frac:
+        raise SystemExit(
+            f'works: primary_topic differs from topics[1] in {topic_ne:,} rows and {apc_frac:,} apc_paid values are '
+            'fractional; re-check the spec.'
+        )
+    return {name: _write_sql(con, name, sql, out_root, snapshot, 'works') for name, sql in works_sql().items()}
+
+
 ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[str, pa.Table]]]] = {
     'institutions': (['institutions'], lambda r, y: build_institutions(r['institutions'], y)),
     'sources': (['sources'], lambda r, y: build_sources(r['sources'], y)),
@@ -904,7 +1236,13 @@ ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[s
     'concepts': (['concepts'], lambda r, y: build_concepts(r['concepts'])),
     'funders': (['funders'], lambda r, y: build_funders(r['funders'], y)),
 }
-STREAMED: dict[str, Callable[..., dict[str, dict[str, Any]]]] = {'authors': write_authors, 'awards': write_awards}
+STREAMED: dict[str, Callable[..., dict[str, dict[str, Any]]]] = {
+    'authors': write_authors,
+    'awards': write_awards,
+    'works': lambda out_root, max_year, snapshot: write_works(
+        out_root, max_year, snapshot, ref_root=OUT_ROOT / out_root.name
+    ),
+}
 
 
 def _type_name(t: str) -> str:
