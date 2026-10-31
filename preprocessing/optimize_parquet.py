@@ -17,6 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pyarrow as pa
 
 from src import optimize as o
@@ -147,7 +148,18 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('wikipedia', STR),
         DATES,
     ),
-    'topics_keywords': _schema(('topic_id', U16), ('keyword_id', STR), ('keyword', STR), ('score', F32)),
+    'topics_keywords': _schema(('topic_id', U16), ('keyword_id', STR), ('score', F32)),
+    'keywords': _schema(
+        ('keyword_id', STR),
+        ('keyword_name', STR),
+        ('description', STR),
+        ('wikidata', U32),
+        ('num_works', U32),
+        ('num_citations', U32),
+        DATES,
+    ),
+    'keywords_display_name_alternatives': _schema(('keyword_id', STR), ('display_name_alternative', STR)),
+    'keywords_topics': _schema(('keyword_id', STR), ('topic_id', U16), ('score', F32), ('is_primary_topic', BOOL)),
     'subfields': _schema(
         ('subfield_id', U16),
         ('subfield_name', STR),
@@ -397,7 +409,12 @@ DESCRIPTIONS: dict[str, str] = {
     'sources_topics': 'Topics of each source with work counts.',
     'sources_topic_share': 'Share of each topic in the work of each source.',
     'topics': 'One row per topic with description, counts, and its subfield, field, and domain.',
-    'topics_keywords': 'Keywords of each topic with keyword slug and score.',
+    'topics_keywords': 'Keywords of each topic with keyword slug and score (names in `keywords`).',
+    'keywords': 'One row per keyword: slug, name, description, Wikidata Q-number, and work and citation counts '
+    '(counts include xpac works).',
+    'keywords_display_name_alternatives': 'Alternative names of each keyword, one row per name.',
+    'keywords_topics': 'Topics of each keyword with score; `is_primary_topic` marks the primary topic where OpenAlex '
+    'sets one.',
     'subfields': 'One row per subfield with its field and domain.',
     'subfields_display_name_alternatives': 'Alternative names of each subfield.',
     'fields': 'One row per field with its domain.',
@@ -719,7 +736,6 @@ def build_topics(raws: dict[str, pa.Table]) -> dict[str, pa.Table]:
                 {
                     key: k[key],
                     'keyword_id': o.keyword_slug(k['id'], 'topics.keywords.id'),
-                    'keyword': k['display_name'],
                     'score': k['score'],
                 },
                 [key],
@@ -748,6 +764,49 @@ def build_concepts(raw: pa.Table) -> dict[str, pa.Table]:
         'created_date': raw['created_date'],
     }
     return {'concepts': _conform('concepts', cols, ['concept_id'])}
+
+
+def build_keywords(raw: pa.Table) -> dict[str, pa.Table]:
+    """keywords and its child tables (spec: schema-oct-2026.md, Keywords)."""
+    o.assert_unique(raw['id'], 'keywords.id')
+    kid = o.keyword_slug(raw['id'], 'keywords.id')
+    _require_equal(_field(raw['ids'], 'openalex'), raw['id'], 'keywords.ids.openalex')
+    cols = {
+        'keyword_id': kid,
+        'keyword_name': raw['display_name'],
+        'description': raw['description'],
+        'wikidata': o.wikidata(_field(raw['ids'], 'wikidata'), 'keywords.ids.wikidata'),
+        'num_works': raw['works_count'],
+        'num_citations': raw['cited_by_count'],
+        'updated_date': raw['updated_date'],
+        'created_date': raw['created_date'],
+    }
+    out = {'keywords': _conform('keywords', cols, ['keyword_id'])}
+    base = pa.table({'keyword_id': kid, 'display_name_alternatives': raw['display_name_alternatives']})
+    e = o.explode(base, ['keyword_id'], 'display_name_alternatives')
+    out['keywords_display_name_alternatives'] = _conform(
+        'keywords_display_name_alternatives',
+        {'keyword_id': e['keyword_id'], 'display_name_alternative': e['display_name_alternatives']},
+        ['keyword_id'],
+    )
+    # is_primary_topic: the first topic, only where primary_topic is set (when set it is always topics[1]).
+    lists = o._array(raw['topics'])
+    first = pa.array(np.isin(np.arange(len(pc.list_flatten(lists))), lists.offsets.to_numpy()[:-1]))
+    has_primary = pc.is_valid(_field(raw['primary_topic'], 'id'))
+    t = o.explode(
+        pa.table({'keyword_id': kid, 'topics': raw['topics'], 'p': has_primary}), ['keyword_id', 'p'], 'topics'
+    )
+    out['keywords_topics'] = _conform(
+        'keywords_topics',
+        {
+            'keyword_id': t['keyword_id'],
+            'topic_id': o.openalex_id(t['id'], 'T', 'keywords.topics.id', U16),
+            'score': t['score'],
+            'is_primary_topic': pc.and_(first, t['p']),
+        },
+        ['keyword_id', 'topic_id'],
+    )
+    return out
 
 
 FUNDER_YEARS_AHEAD = 3  # user: keep funder years to 2030 (snapshot year + 4) to cover long-term grants
@@ -1160,10 +1219,12 @@ def works_sql() -> dict[str, str]:
             't.domain.display_name domain_name',
             'unnest(topics) t, unnest(generate_series(1, len(topics))) j',
         ),
-        'works_keywords': child(
-            "slug(k.id, 'https://openalex.org/keywords/', 'keyword id') keyword_id, k.score::float score",
-            'unnest(keywords) k',
-        ),
+        'works_keywords': f"""select * from ({
+            child(
+                "slug(k.id, 'https://openalex.org/keywords/', 'keyword id') keyword_id, k.score::float score",
+                'unnest(keywords) k',
+            )
+        }) x semi join known_kw using (keyword_id) order by all""",
         'works_concepts': child(
             "oa_id(c.id, 'C', 'concept id') concept_id, c.score::float score",
             'unnest(concepts) c, unnest(list_transform(concepts, lambda x, i: '
@@ -1228,6 +1289,9 @@ def write_works(
         'publication_year::usmallint publication_year from w'
     )
     con.execute(
+        f"create or replace temp table known_kw as select keyword_id from read_parquet('{ref_root}/keywords/*.parquet')"
+    )
+    con.execute(
         'create or replace temp table known_inst as select institution_id '
         f"from read_parquet('{ref_root}/institutions/*.parquet')"
     )
@@ -1276,9 +1340,12 @@ def write_works(
           (select oa_id(volume.id, 'W', 'volume id') v from w where volume.id is not null) x
           anti join yrs y on x.v = y.work_id),
         (select count(*) from (select unnest(corresponding_institution_ids) c from w) x
-          anti join known_inst k on oa_id(x.c, 'I', 'institution id') = k.institution_id)""").fetchall()[0]
+          anti join known_inst k on oa_id(x.c, 'I', 'institution id') = k.institution_id),
+        (select count(*) from (select substr(unnest(keywords).id, 31) kid from w) x
+          anti join known_kw k on x.kid = k.keyword_id)""").fetchall()[0]
     log.info(
-        'works: %s volume IDs outside the build nulled, %s dangling corresponding institutions dropped',
+        'works: %s volume IDs outside the build nulled, %s dangling corresponding institutions dropped, '
+        '%s keyword rows with a slug not in keywords dropped',
         *(f'{v:,}' for v in dangling),
     )
     if topic_ne or apc_frac:
@@ -1294,6 +1361,7 @@ ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[s
     'sources': (['sources'], lambda r, y: build_sources(r['sources'], y)),
     'topics': (['topics', 'subfields', 'fields', 'domains'], lambda r, y: build_topics(r)),
     'concepts': (['concepts'], lambda r, y: build_concepts(r['concepts'])),
+    'keywords': (['keywords'], lambda r, y: build_keywords(r['keywords'])),
     'funders': (['funders'], lambda r, y: build_funders(r['funders'], y)),
 }
 STREAMED: dict[str, Callable[..., dict[str, dict[str, Any]]]] = {

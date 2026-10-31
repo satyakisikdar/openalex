@@ -602,6 +602,7 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     for name, table in {
         'institutions': pa.table({'institution_id': [5, 6]}),
         'sources': pa.table({'source_id': [3], 'is_oa': [True]}),
+        'keywords': pa.table({'keyword_id': ['kelp']}),
     }.items():
         (tmp_path / 'ref' / name).mkdir()
         pq.write_table(table, tmp_path / 'ref' / name / 'part-00000.parquet')
@@ -658,3 +659,39 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     }
     assert pq.read_table(out / 'works_sustainable_development_goals').to_pylist()[0]['sdg_id'] == 3
     assert pq.read_table(out / 'works_study_designs').to_pylist()[0]['study_design'] == 'case-report'
+
+
+def test_build_keywords() -> None:
+    def topic(n: int, score: float) -> dict:
+        h = {'id': f'{OA}subfields/1', 'display_name': 'S'}
+        return {'id': f'{OA}T{n}', 'display_name': 'T', 'score': score, 'subfield': h, 'field': h, 'domain': h}
+
+    def kw(slug: str, topics: list[dict], primary: dict | None) -> dict:
+        return {
+            'id': f'{OA}keywords/{slug}',
+            'display_name': slug.title(),
+            'display_name_alternatives': [slug.upper()],
+            'description': None,
+            'ids': {'openalex': f'{OA}keywords/{slug}', 'wikidata': 'https://www.wikidata.org/wiki/Q7'},
+            'primary_topic': primary,
+            'topics': topics,
+            'works_count': 2,
+            'cited_by_count': 1,
+            'created_date': datetime(2020, 1, 1, 5, tzinfo=UTC),
+            'updated_date': datetime(2026, 1, 1, tzinfo=UTC),
+        }
+
+    a, b = topic(10, 0.9), topic(20, 0.5)
+    raw = pa.Table.from_pylist([kw('zeta', [a, b], a), kw('alpha', [b], None), kw('mid', [], None)])
+    out = op.build_keywords(raw)
+    _check(out)
+    k = out['keywords'].to_pylist()
+    assert [r['keyword_id'] for r in k] == ['alpha', 'mid', 'zeta'] and k[0]['wikidata'] == 7
+    assert k[2]['created_date'] == date(2020, 1, 1)
+    t = out['keywords_topics'].to_pylist()
+    assert [(r['keyword_id'], r['topic_id'], r['is_primary_topic']) for r in t] == [
+        ('alpha', 20, False),  # topics but no primary topic
+        ('zeta', 10, True),
+        ('zeta', 20, False),
+    ]
+    assert out['keywords_display_name_alternatives'].num_rows == 3

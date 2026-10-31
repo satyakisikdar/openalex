@@ -594,7 +594,8 @@ dry run; `/data` has 2.0 TB free.
 
 # Keywords
 
-**Status: proposed 2026-10-30.** Nothing built.
+**Status: approved 2026-10-30 (all 5 decisions as recommended).** `topics_keywords` loses its `keyword`
+column and `works_keywords` drops the 4 slugs missing here.
 
 New entity: the old flattener had no keywords table, only `works_keywords` and `topics_keywords`. Raw: 1,881,723
 keywords in 9 files, identical schema in every file, IDs unique, all of the form
