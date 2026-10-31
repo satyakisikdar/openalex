@@ -1,6 +1,10 @@
 # Progress
 
 ## 2026-10-30
+- Queued on Yoda (`~/scratch/run_works_full_dry.sh`, log `works_full_gate.log`): when the final 100-file works rerun
+  ends, `gate_works_full.py` checks its log (every `_bad` 0, formulas equal, md5 identical) and only then starts the
+  full works dry run (45 GB cap, memory watchdog; output `~/scratch/optimize-dryrun`, log `works-full-dry.log`).
+  Next session: review that dry run, then the real write and md5 proof. Abstracts last.
 - Keywords audited (`audit_keywords{,2}.log`) and built in `oct-2026/` (3 tables, 10,983,059 rows, 166 MB);
   `topics_keywords` lost its `keyword` column (topics rebuilt); real write byte-identical to the dry run.
   `oct-2026/` now has 53 tables. `works_keywords` will drop the 4 slugs missing from `keywords`.

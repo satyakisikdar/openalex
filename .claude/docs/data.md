@@ -29,6 +29,10 @@
   - DuckDB: `struct = struct` is NULL when a nested field is NULL (and `not (x or NULL)` drops the row); compare
     structs with `is not distinct from`. A first awards count lost 270k investigator rows this way.
 
+  - Memory: `free` "used" includes the ZFS cache (ARC), uncapped (`zfs_arc_max` 0), which grew to 201 GB after
+    scans of the raw works and pushed swap to 30 of 31 GB; check `MemAvailable`, not "used". Long DuckDB jobs run at
+    a lower cap when it is under cap + 20 GB (works full run: 45 GB, with a watchdog on `MemAvailable`).
+
 ## Pipeline order (`__main__` in `flatten_openalex_files.py`)
 1. `flatten_merged_entries()` -> `<kind>_combined_merged_ids.parquet` (skip-ids). Must run before works.
 2. Small entities: funders, concepts, institutions, publishers, sources, topics.
