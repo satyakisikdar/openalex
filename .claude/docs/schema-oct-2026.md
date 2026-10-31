@@ -414,7 +414,7 @@ The award-work link is `works.awards` and will be built with works as `works_awa
 
 # Works
 
-**Status: proposed 2026-10-30; decided so far: 1, 2, 8, 18, and 19 (marked DECIDED below).** Nothing built. Abstracts are built last (decided) and are only sketched here.
+**Status: proposed 2026-10-30; decided so far: 1, 2, 4 (part), 8, 14, 18, and 19 (marked DECIDED below).** Nothing built. Abstracts are built last (decided) and are only sketched here.
 
 Raw: 464,765,485 works in 1,898 files (696 GB with abstracts), identical schema in every file, IDs unique (max
 7,221,746,310), none in `deleted_ids.csv.gz` (71,528,591 IDs). xpac works (137,776,075) and all their child rows
@@ -446,7 +446,6 @@ dry run; `/data` has 2.0 TB free.
 | type | dict | type | 25 values (all works) | `type_crossref` gone from raw |
 | language | dict | language | 22,997,308 null, 77 empty stored null; 716 raw forms (all works; `en`, `EN`, `zh-cn`, `中文`) | as is (decided) |
 | num_authors | uint16 | authorships | max 4,943; 0 in 41,191,378 | distinct non-null author IDs (decided) |
-| num_authorships | uint16 | authors_count | max 5,000 | **new** name; equals the raw authorship list length in every row, so repeated authors still count (not derivable after dedupe) |
 | num_locations | uint16 | locations_count | max 1,196 | equals list length in every row |
 | num_references | uint16 | referenced_works_count | max 5,000 | Decision 5 |
 | num_citations | uint32 | cited_by_count | 0 to 801,217 | |
@@ -495,6 +494,7 @@ dry run; `/data` has 2.0 TB free.
 | Raw column(s) | Why |
 |---|---|
 | `display_name` | equals `title` in every row |
+| `authors_count` | dropped (user, 2026-10-30): the raw list length counts repeats and dropped authorships; `num_authors` counts the kept authors |
 | `ids.openalex`, `ids.doi` | equal `id` and `doi` in every row |
 | `is_xpac` | xpac works are skipped |
 | top-level `institutions` | empty in every work |
@@ -529,7 +529,8 @@ dry run; `/data` has 2.0 TB free.
    survive. 71,879,138 rows.
 3. **`raw_orcid`** (new; 147,793,139 non-null, 323 with a lowercase `x`). Recommended: keep, bare form with an
    uppercase `X`, as in awards.
-4. **Authorship countries and affiliations.** `countries` differs from the institutions' countries in 1,664,425
+4. **DECIDED 2026-10-30 (part): no `works_authorships_affiliations` (works_authorships keeps the work, author,
+   institution tuples); countries pending `audit_works8.log`.** Was: **Authorship countries and affiliations.** `countries` differs from the institutions' countries in 1,664,425
    authorships, always where an institution has no country code; and `affiliations` is the only link from each raw
    string to its institutions (153,062,999 authorships have 2 or more; the institution sets differ in 131,289).
    Recommended: add `works_authorships_countries` (author_order, country_code; 519,530,884 rows before dedupe) and
@@ -557,7 +558,7 @@ dry run; `/data` has 2.0 TB free.
 12. **New columns** marked **new** above need your approval (CLAUDE.md rule). Recommended: all.
 13. **Volume:** keep `volume_work_id` including the 59,083 that point outside the build, and keep `volume_name`
     (not derivable). Recommended.
-14. **`observed_orcids`** (a list per authorship author, not audited). Recommended: drop; the ORCID lives on the
+14. **DECIDED 2026-10-30: drop.** Was: **`observed_orcids`** (a list per authorship author, not audited). Recommended: drop; the ORCID lives on the
     author profile. Say if you want it audited first.
 15. **Years outside 1500 to 2027** (2,946 values, min 1007, max 2050): keep as is, and log. Recommended.
 16. **Empty strings to null** (627,446 titles, 4,006 DOIs, 77 languages, 206 volumes, 5,615 first pages, 1,542,774

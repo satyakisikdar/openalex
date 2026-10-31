@@ -596,7 +596,7 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     assert set(manifests) == {n for n in op.SCHEMAS if n.startswith('works')}
     w = pq.read_table(out / 'works').to_pylist()
     assert [r['work_id'] for r in w] == [1, 2]  # xpac work 3 skipped
-    assert w[1]['num_authors'] == 2 and w[1]['num_authorships'] == 6 and w[1]['has_complete_institution_info'] is False
+    assert w[1]['num_authors'] == 2 and w[1]['has_complete_institution_info'] is False
     assert w[1]['doi'] is None and w[1]['title'] is None and w[1]['apc_paid_value'] == 90
     a = pq.read_table(out / 'works_authorships').to_pylist()
     assert [(r['author_order'], r['author_id'], r['institution_id']) for r in a] == [

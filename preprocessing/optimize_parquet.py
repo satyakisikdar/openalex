@@ -265,7 +265,6 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('type', DICT),
         ('language', DICT),
         ('num_authors', U16),
-        ('num_authorships', U16),
         ('num_locations', U16),
         ('num_references', U16),
         ('num_citations', U32),
@@ -425,8 +424,7 @@ DESCRIPTIONS: dict[str, str] = {
     'authors_sources': 'Sources each author has published in.',
     'authors_counts_by_year': 'Works, open-access works, and citations per author per year.',
     'works': 'One row per work (xpac works excluded): DOI, title, year, type, language, counts, citation metrics, '
-    'APCs, and flags. `num_authors` counts distinct authors in `works_authorships`; `num_authorships` is the raw '
-    'authorship list length.',
+    'APCs, and flags. `num_authors` counts distinct authors in `works_authorships`.',
     'works_ids': 'External identifiers per work: MAG ID, PubMed ID, and OpenAlex curation ID.',
     'works_open_access': 'Open-access status per work, with the best open-access URL.',
     'works_biblio': 'Volume, issue, and pages per work.',
@@ -1065,7 +1063,7 @@ def works_sql() -> dict[str, str]:
     return {
         'works': """select oa_id(w.id, 'W', 'work id') work_id, doi_strip(doi) doi, blank(title) title,
             publication_year::usmallint publication_year, publication_date, type, blank(language) language,
-            n_auth::usmallint num_authors, authors_count::usmallint num_authorships,
+            n_auth::usmallint num_authors,
             locations_count::usmallint num_locations, referenced_works_count::usmallint num_references,
             cited_by_count::uinteger num_citations, countries_distinct_count::utinyint num_countries,
             institutions_distinct_count::usmallint num_institutions, fwci::float fwci,
