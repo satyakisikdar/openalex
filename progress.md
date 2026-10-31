@@ -1,6 +1,11 @@
 # Progress
 
 ## 2026-10-30
+- Works converter written (`write_works`, DuckDB) with every works decision approved (`schema-oct-2026.md`); two
+  100-file runs on the final code match the audit formulas, pass 22 consistency checks, and are byte-identical.
+  Types tightened from full-data cardinality (uint32 MAG and PMID; dict volume, issue, raw_type). Full dry run next.
+- Sources rebuilt with `is_..._since_year` renamed to `in_doaj_since_year` and `high_oa_rate_since_year` (every
+  `is_*`/`has_*` column is now bool); README now explains null handling in pandas. Real write matches the dry run.
 - Works audits 3, 4, and 5 finished overnight and agree where they overlap (audit3's references anti-join hit
   the 60 GB cap 3 times; audit5 covers it). Decided: keep the 3,168,890 works with no year (null
   `publication_year`), drop self-references (1,059,673), dedupe MeSH and repeated authors; recorded in `parquet.md`.
