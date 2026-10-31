@@ -414,7 +414,17 @@ The award-work link is `works.awards` and will be built with works as `works_awa
 
 # Works
 
-**Status: proposed 2026-10-30; decided so far: 1, 2, 4 (part), 8, 14, 18, and 19 (marked DECIDED below).** Nothing built. Abstracts are built last (decided) and are only sketched here.
+**Status: all decisions approved 2026-10-30** (1, 2, 4, 8, 14, 18, and 19 as marked DECIDED below; the other 14
+with the advisor's changes, listed here). Not yet built.
+
+Approved with changes (user, 2026-10-30): `num_references` counts the kept references (rows in
+`works_referenced_works`), not OpenAlex's raw count; `num_institutions` and `num_countries` count distinct
+institution IDs and country codes over the kept `works_authorships` rows; `works_keywords` drops the keyword name
+(a `keywords` lookup table comes from the raw `keywords` entity, 1,881,723 rows, after its own audit);
+`volume_work_id` is null when the volume is not a work in the build (59,083); the 1,574 dangling rows of
+`works_corresponding_institutions` are dropped; `native_id` is kept pending the check of whether it equals the
+location DOI; malformed `raw_orcid` values are uppercased when that makes them valid, else null and logged.
+Approved as recommended: 3, 6, 7, 10, 11, 12, 15, 16, 17, 20. Nothing built. Abstracts are built last (decided) and are only sketched here.
 
 Raw: 464,765,485 works in 1,898 files (696 GB with abstracts), identical schema in every file, IDs unique (max
 7,221,746,310), none in `deleted_ids.csv.gz` (71,528,591 IDs). xpac works (137,776,075) and all their child rows

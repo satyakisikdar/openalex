@@ -349,7 +349,7 @@ SCHEMAS: dict[str, pa.Schema] = {
         ('domain_id', U8),
         ('domain_name', DICT),
     ),
-    'works_keywords': _schema(WORK, YEAR, ('keyword_id', STR), ('keyword', DICT), ('score', F32)),
+    'works_keywords': _schema(WORK, YEAR, ('keyword_id', STR), ('score', F32)),
     'works_concepts': _schema(WORK, YEAR, ('concept_id', I64), ('score', F32)),
     'works_mesh': _schema(
         WORK,
@@ -437,7 +437,7 @@ DESCRIPTIONS: dict[str, str] = {
     'works_locations': 'Every location (version) of each work, with its source, URLs, license, and version; '
     '`is_primary` and `is_best_oa` mark the primary and best open-access location.',
     'works_topics': 'Topics of each work (at most 3) with score and the topic hierarchy names.',
-    'works_keywords': 'Keywords of each work: slug, name, and score.',
+    'works_keywords': 'Keywords of each work: slug and score.',
     'works_concepts': 'Legacy concepts of each work with score.',
     'works_mesh': 'MeSH descriptors and qualifiers of each work (one row per descriptor and qualifier).',
     'works_referenced_works': 'References between works in this build, with the publication year of both works.',
@@ -1042,6 +1042,11 @@ create or replace macro pmid_clean(s) as case when s is null then null
   when regexp_full_match(s, 'https://pubmed\.ncbi\.nlm\.nih\.gov/[0-9]+')
     then cast(regexp_extract(s, '([0-9]+)$', 1) as bigint)
   else error('bad PMID: ' || s) end;
+create or replace macro cc_left(e) as list_filter(list_distinct(e.countries), lambda c: not list_contains(
+  list_transform(e.institutions, lambda i: i.country_code), c));
+create or replace macro cc_fallback(e) as case when len(cc_left(e)) = 1
+  and len(list_filter(e.institutions, lambda i: i.country_code is null)) + (len(e.institutions) = 0)::int = 1
+  then cc_left(e)[1] end;
 create or replace macro sdg_id(s) as case when regexp_full_match(s, 'https://metadata\.un\.org/sdg/[0-9]+')
   then cast(regexp_extract(s, '([0-9]+)$', 1) as utinyint) else error('bad SDG id: ' || s) end;
 """
@@ -1067,9 +1072,9 @@ def works_sql() -> dict[str, str]:
         'works': """select oa_id(w.id, 'W', 'work id') work_id, doi_strip(doi) doi, blank(title) title,
             publication_year::usmallint publication_year, publication_date, type, blank(language) language,
             n_auth::usmallint num_authors,
-            locations_count::usmallint num_locations, referenced_works_count::usmallint num_references,
-            cited_by_count::uinteger num_citations, countries_distinct_count::utinyint num_countries,
-            institutions_distinct_count::usmallint num_institutions, fwci::float fwci,
+            locations_count::usmallint num_locations, coalesce(nr.n, 0)::usmallint num_references,
+            cited_by_count::uinteger num_citations, n_cc::utinyint num_countries,
+            n_inst::usmallint num_institutions, fwci::float fwci,
             citation_normalized_percentile.value::float citation_percentile,
             citation_normalized_percentile.is_in_top_1_percent is_in_top_1_percent,
             citation_normalized_percentile.is_in_top_10_percent is_in_top_10_percent,
@@ -1078,18 +1083,24 @@ def works_sql() -> dict[str, str]:
             apc_list.value::uinteger apc_list_value, blank(apc_list.currency) apc_list_currency,
             apc_list.value_usd::usmallint apc_list_usd, apc_paid.value::uinteger apc_paid_value,
             blank(apc_paid.currency) apc_paid_currency, apc_paid.value_usd::uinteger apc_paid_usd,
-            oa_id(volume.id, 'W', 'volume id') volume_work_id, blank(volume.display_name) volume_name,
+            vy.vid volume_work_id, blank(volume.display_name) volume_name,
             n_auth > 0 and n_noinst = 0 has_complete_institution_info, len(awards) > 0 has_grant_info,
             len(keywords) > 0 has_keywords, has_fulltext, has_content.pdf has_pdf,
             has_content.grobid_xml has_grobid_xml, ps.is_oa primary_source_is_oa,
             is_retracted, is_paratext, updated_date::date updated_date, created_date::date created_date
-            from (select w.*,
-                len(list_distinct(list_filter(list_transform(authorships, lambda s: s.author.id),
-                    lambda x: x is not null))) - coalesce(o.n_orph, 0) n_auth,
-                len(list_filter(authorships, lambda s: s.author.id is not null and len(s.institutions) = 0))
-                    - coalesce(o.n_orph_noinst, 0) n_noinst
-              from w left join orph o using (id)) w
-            left join src_oa ps on ps.source_id = oa_id(w.locations[1].source.id, 'S', 'source id') order by all""",
+            from (select w.*, len(list_distinct(list_transform(ka, lambda s: s.author.id))) n_auth,
+                len(list_filter(ka, lambda s: len(s.institutions) = 0)) n_noinst,
+                len(list_distinct(flatten(list_transform(ka,
+                  lambda s: list_transform(s.institutions, lambda i: i.id))))) n_inst,
+                len(list_distinct(list_filter(flatten(list_transform(ka, lambda s: list_append(
+                  list_transform(s.institutions, lambda i: i.country_code), cc_fallback(s)))),
+                  lambda c: c is not null))) n_cc
+              from (select w.*, list_filter(authorships, lambda s: s.author.id is not null
+                      and not list_contains(coalesce(o.orph_aids, []), s.author.id)) ka
+                    from w left join orph o using (id)) w) w
+            left join src_oa ps on ps.source_id = oa_id(w.locations[1].source.id, 'S', 'source id')
+            left join (select work_id rid, n from nref) nr on nr.rid = oa_id(w.id, 'W', 'work id')
+            left join (select work_id vid from yrs) vy on vy.vid = oa_id(w.volume.id, 'W', 'volume id') order by all""",
         'works_ids': child(
             "cast(ids['mag'] as bigint) mag, pmid_clean(ids['pmid']) pmid, ids['openalex_curation'] openalex_curation",
             'ids',
@@ -1106,16 +1117,13 @@ def works_sql() -> dict[str, str]:
         ),
         'works_authorships': f"""select work_id, publication_year, author_order, author_position, author_id,
             raw_author_name, raw_orcid, is_corresponding, oa_id(inst.id, 'I', 'institution id') institution_id,
-            coalesce(inst.country_code, case when len(left_cc) = 1 and n_slots = 1 then left_cc[1] end) country_code,
+            coalesce(inst.country_code, fb) country_code,
             raw_affiliation_string from (
               select {wid}, j::usmallint author_order, e.author_position author_position,
                 oa_id(e.author.id, 'A', 'author id') author_id, blank(e.raw_author_name) raw_author_name,
                 orcid_any(e.raw_orcid) raw_orcid, e.is_corresponding is_corresponding,
                 unnest(case when len(e.institutions) = 0 then [null] else e.institutions end) inst,
-                list_filter(list_distinct(e.countries), lambda c: not list_contains(
-                    list_transform(e.institutions, lambda i: i.country_code), c)) left_cc,
-                len(list_filter(e.institutions, lambda i: i.country_code is null))
-                    + (len(e.institutions) = 0)::int n_slots,
+                cc_fallback(e) fb,
                 nullif(array_to_string(list_filter(e.raw_affiliation_strings, lambda r: trim(r) <> ''), ';'), '')
                   raw_affiliation_string
               from (select id, publication_year, unnest(authorships) e, unnest(generate_series(1, len(authorships))) j,
@@ -1123,9 +1131,12 @@ def works_sql() -> dict[str, str]:
                     from (select id, publication_year, authorships, {AUTHOR_KEYS} k from w))
               where keep and e.author.id is not null) x
             semi join known on x.author_id = known.author_id order by all""",
-        'works_corresponding_institutions': child(
-            "oa_id(c, 'I', 'corresponding institution id') institution_id", 'unnest(corresponding_institution_ids) c'
-        ),
+        'works_corresponding_institutions': f"""select * from ({
+            child(
+                "oa_id(c, 'I', 'corresponding institution id') institution_id",
+                'unnest(corresponding_institution_ids) c',
+            )
+        }) x semi join known_inst using (institution_id) order by all""",
         'works_locations': f"""select work_id, publication_year, location_order, is_primary, is_best_oa, native_id,
             x.source_id, so.is_oa source_is_oa, doi, landing_page_url, pdf_url, version, license, x.is_oa, is_accepted,
             is_published, raw_source_name, raw_type, provenance from ({
@@ -1148,8 +1159,7 @@ def works_sql() -> dict[str, str]:
             'unnest(topics) t, unnest(generate_series(1, len(topics))) j',
         ),
         'works_keywords': child(
-            "slug(k.id, 'https://openalex.org/keywords/', 'keyword id') keyword_id, k.display_name keyword, "
-            'k.score::float score',
+            "slug(k.id, 'https://openalex.org/keywords/', 'keyword id') keyword_id, k.score::float score",
             'unnest(keywords) k',
         ),
         'works_concepts': child(
@@ -1167,14 +1177,7 @@ def works_sql() -> dict[str, str]:
             f'list_transform(mesh, lambda y: {_mesh_key("y")}), {_mesh_key("x")}) = i)) keep',
             'where keep',
         ),
-        'works_referenced_works': f"""select r.work_id, r.work_publication_year, r.referenced_work_id,
-            y.publication_year referenced_work_publication_year
-            from (select oa_id(id, 'W', 'work id') work_id, publication_year::usmallint work_publication_year,
-                    oa_id(rr, 'W', 'referenced work id') referenced_work_id
-                  from (select id, publication_year, unnest(referenced_works) rr from w)) r
-            join yrs y on y.work_id = r.referenced_work_id
-            where r.referenced_work_id <> {PLACEHOLDER_WORK} and r.referenced_work_id <> r.work_id
-            order by all""",
+        'works_referenced_works': 'select * from refs order by all',
         'works_indexed_in': child('x indexed_source', 'unnest(indexed_in) x'),
         'works_counts_by_year': child(
             'c.year::usmallint as "year", c.cited_by_count::uinteger num_citations', 'unnest(counts_by_year) c'
@@ -1222,19 +1225,32 @@ def write_works(
         "create or replace temp table yrs as select oa_id(id, 'W', 'work id') work_id, "
         'publication_year::usmallint publication_year from w'
     )
-    # Per work: distinct orphan authors, and orphan copies with no institution (they leave num_authors and
-    # has_complete_institution_info, since their rows are dropped from works_authorships).
+    con.execute(
+        'create or replace temp table known_inst as select institution_id '
+        f"from read_parquet('{ref_root}/institutions/*.parquet')"
+    )
+    # Per work: the orphan author IDs (not in the built authors table). Their rows are dropped from
+    # works_authorships, so works' author, institution, and country counts skip them too.
     con.execute("""create or replace temp table orph as
-        select id, count(distinct aid) n_orph, count(*) filter (where noinst) n_orph_noinst
-        from (select id, oa_id(s.author.id, 'A', 'author id') aid, len(s.institutions) = 0 noinst
-              from (select id, unnest(authorships) s from w) where s.author.id is not null) x
-        anti join known k on x.aid = k.author_id group by id""")
+        select id, list(distinct aid order by aid) orph_aids
+        from (select id, s.author.id aid from (select id, unnest(authorships) s from w) where s.author.id is not null) x
+        anti join known k on oa_id(x.aid, 'A', 'author id') = k.author_id group by id""")
+    # References kept: targets in the build, minus self-references and the deleted-work placeholder.
+    con.execute(f"""create or replace temp view refs as
+        select r.work_id, r.work_publication_year, r.referenced_work_id,
+          y.publication_year referenced_work_publication_year
+        from (select oa_id(id, 'W', 'work id') work_id, publication_year::usmallint work_publication_year,
+                oa_id(rr, 'W', 'referenced work id') referenced_work_id
+              from (select id, publication_year, unnest(referenced_works) rr from w)) r
+        join yrs y on y.work_id = r.referenced_work_id
+        where r.referenced_work_id <> {PLACEHOLDER_WORK} and r.referenced_work_id <> r.work_id""")
+    con.execute('create or replace temp table nref as select work_id, count(*) n from refs group by work_id')
     row = con.execute(
         f"""select (select count(*) from a where is_xpac), (select count(*) from w),
         (select count(*) from w where primary_topic is distinct from topics[1]),
         (select count(*) from w where apc_paid.value <> floor(apc_paid.value)
             or apc_paid.value_usd <> floor(apc_paid.value_usd)),
-        (select sum(n_orph) from orph),
+        (select sum(len(orph_aids)) from orph),
         (select count(*) from (select unnest(authorships) s from w) where s.author.id is null),
         (select count(*) from (select id, unnest(referenced_works) r from w) where r = id),
         (select count(*) from (select unnest(referenced_works) r from w) where r = 'https://openalex.org/W{PLACEHOLDER_WORK}')"""
@@ -1245,6 +1261,23 @@ def write_works(
         'works dropped: %s authorships with no author ID, %s orphan author IDs (summed per work), '
         '%s self-references, %s placeholder references',
         *(f'{v or 0:,}' for v in (null_authors, orphans, self_refs, placeholders)),
+    )
+    corr_ne = con.execute("""select id from w where list_sort(list_distinct(corresponding_author_ids)) is distinct from
+        list_sort(list_distinct(list_transform(list_filter(authorships, lambda s: s.is_corresponding
+          and s.author.id is not null), lambda s: s.author.id)))""").fetchall()
+    log.info(
+        'works: corresponding_author_ids dropped; differs from is_corresponding in %s works: %s',
+        len(corr_ne),
+        [r[0] for r in corr_ne[:20]],
+    )
+    dangling = con.execute("""select (select count(*) from
+          (select oa_id(volume.id, 'W', 'volume id') v from w where volume.id is not null) x
+          anti join yrs y on x.v = y.work_id),
+        (select count(*) from (select unnest(corresponding_institution_ids) c from w) x
+          anti join known_inst k on oa_id(x.c, 'I', 'institution id') = k.institution_id)""").fetchall()[0]
+    log.info(
+        'works: %s volume IDs outside the build nulled, %s dangling corresponding institutions dropped',
+        *(f'{v:,}' for v in dangling),
     )
     if topic_ne or apc_frac:
         raise SystemExit(

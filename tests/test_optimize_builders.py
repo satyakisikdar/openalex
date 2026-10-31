@@ -508,6 +508,7 @@ def _work(wid: int, **kw) -> dict:
         'biblio': {'volume': '1', 'issue': None, 'first_page': '', 'last_page': '9'},
         'authorships': [],
         'corresponding_institution_ids': [f'{OA}I5'],
+        'corresponding_author_ids': [],
         'locations': [loc],
         'best_oa_location': loc,
         'primary_topic': topic,
@@ -581,8 +582,15 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
             referenced_works=[f'{OA}W1', f'{OA}W2', f'{OA}W4285719527', f'{OA}W3', f'{OA}W8'],
             concepts=[{'id': f'{OA}C4', 'score': 0.1}, {'id': f'{OA}C4', 'score': 0.2}],
             mesh=[m1, m1 | {'is_major_topic': True}],
+            volume={'id': f'{OA}W1', 'display_name': 'V1'},
         ),
-        _work(1, publication_year=None, publication_date=None),
+        _work(
+            1,
+            publication_year=None,
+            publication_date=None,
+            volume={'id': f'{OA}W999', 'display_name': 'V'},
+            corresponding_institution_ids=[f'{OA}I77'],
+        ),
         _work(3, is_xpac=True),
     ]
     part = tmp_path / 'raw' / 'works' / 'updated_date=2026-08-26'
@@ -606,6 +614,13 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     assert [r['work_id'] for r in w] == [1, 2]  # xpac work 3 skipped
     assert w[1]['num_authors'] == 3 and w[1]['has_complete_institution_info'] is False
     assert w[0]['primary_source_is_oa'] is True
+    # counts come from the kept rows: 1 kept reference; institutions {5, 6}; countries {US, PT (fallback)}
+    assert (w[1]['num_references'], w[1]['num_institutions'], w[1]['num_countries']) == (1, 2, 2)
+    assert w[1]['volume_work_id'] == 1 and w[0]['volume_work_id'] is None and w[0]['volume_name'] == 'V'
+    assert pq.read_table(out / 'works_corresponding_institutions').to_pylist() == [
+        {'work_id': 2, 'publication_year': 2020, 'institution_id': 5}
+    ]  # I77 (not in institutions) dropped
+    assert pq.read_table(out / 'works_keywords').column_names == ['work_id', 'publication_year', 'keyword_id', 'score']
     assert w[1]['doi'] is None and w[1]['title'] is None and w[1]['apc_paid_value'] == 90
     a = pq.read_table(out / 'works_authorships').to_pylist()
     assert [(r['author_order'], r['author_id'], r['institution_id'], r['country_code']) for r in a] == [
