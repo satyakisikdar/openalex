@@ -1,6 +1,8 @@
 # Progress
 
 ## 2026-11-01
+- `make sync` is now `git push yoda main` into Yoda's git checkout (`updateInstead`), refused while Yoda has
+  uncommitted edits; replaces rsync after a Yoda-side session's doc edits nearly got overwritten.
 - Full works write running into `oct-2026/` (launcher `~/scratch/run_works_full75.sh`, DuckDB 75 GB in an 85 GiB
   no-swap scope; log `works-full75c.log`); 9 of 18 tables written and spot-checked against the live API
   (`~/scratch/spot_check_works.py`). Setup: 326,989,410 non-xpac works, 137,776,075 xpac skipped.
