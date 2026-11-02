@@ -8,6 +8,7 @@ Spec: .claude/docs/schema-oct-2026.md. Rules: .claude/docs/parquet.md. Run on Yo
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -890,8 +891,11 @@ def build_funders(raw: pa.Table, max_year: int) -> dict[str, pa.Table]:
 # Authors are too big for memory: capped DuckDB does the unnest, dedupe, and sort (spilling to disk), and pyarrow
 # writes the batches in the same layout as every other table. ORDER BY ALL gives a full, deterministic order.
 DUCKDB_CONFIG: dict[str, Any] = {
-    'memory_limit': '60GB',
-    'threads': 16,
+    'memory_limit': '40GB',  # Yoda's user slice caps all of ssikdar's processes at 50 GB
+    'threads': 8,  # fewer threads, less memory held per operator
+    'preserve_insertion_order': False,  # every output query ends in ORDER BY ALL, so order is still deterministic
+    'allocator_background_threads': True,  # hand freed memory back to the OS sooner
+    'allocator_flush_threshold': '64MB',  # (default 128MB)
     'temp_directory': '/home/ssikdar/scratch/duckdb-tmp',
 }
 ORCID = r'[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X]'
@@ -965,11 +969,11 @@ AUTHOR_LISTS = {  # output table -> raw list column, to log how many elements ea
 }
 
 
-def duckdb_connection(raw_glob: str) -> Any:
-    """Capped DuckDB with the macros and the raw table as view `a`."""
+def duckdb_connection(raw_glob: str, database: str = ':memory:') -> Any:
+    """Capped DuckDB with the macros and the raw table as view `a`. A file `database` keeps tables on disk."""
     import duckdb
 
-    con = duckdb.connect(config=DUCKDB_CONFIG)
+    con = duckdb.connect(database, config=DUCKDB_CONFIG)
     con.execute("set TimeZone='UTC'")  # timestamptz -> date must use UTC days, like the pyarrow tables
     con.execute(DUCKDB_MACROS)
     con.execute(f'create or replace temp view a as select * from read_parquet({raw_glob}, hive_partitioning=false)')
@@ -1257,19 +1261,34 @@ def works_sql() -> dict[str, str]:
     }
 
 
+def works_helper_db(raw_root: Path, ref_root: Path, out_root: Path) -> Path:
+    """The works helper DuckDB file for one set of inputs (see write_works). Creating it forces a resume."""
+    key = hashlib.sha1(f'{raw_root}|{ref_root}|{out_root}'.encode()).hexdigest()[:12]
+    return Path(DUCKDB_CONFIG['temp_directory']) / f'works-{key}.duckdb'
+
+
 def write_works(
     out_root: Path, max_year: int, snapshot: str, raw_root: Path = RAW_ROOT, ref_root: Path | None = None
 ) -> dict[str, dict[str, Any]]:
     """Works tables via capped DuckDB. `ref_root` holds the built `authors` table (orphan authors are dropped)."""
     del max_year  # years outside 1500 to max_year are kept as reported (spec Decision 15)
     ref_root = ref_root or out_root
-    con = duckdb_connection(f"'{raw_root}/works/*/*.parquet'")
+    # Helper tables live in a DuckDB file, not memory: the full build's references (~2.6B rows) don't fit in RAM.
+    # The file is kept when a run fails and deleted on success, so its presence means "resume": helper tables are
+    # reused (CREATE TABLE IF NOT EXISTS; an interrupted CREATE rolls back) and finished output tables are skipped.
+    # Named by the run's inputs so a test run's leftovers are never reused by another run. One writer at a time.
+    # ponytail: no code-version check; delete the file by hand after changing the works SQL mid-resume.
+    db = works_helper_db(raw_root, ref_root, out_root)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    resume = db.exists()
+    log.info('works: %s helper DB %s', 'resuming from' if resume else 'building', db)
+    con = duckdb_connection(f"'{raw_root}/works/*/*.parquet'", str(db))
     con.execute(WORKS_MACROS)
     con.execute(
-        f"create or replace temp table known as select author_id from read_parquet('{ref_root}/authors/*.parquet')"
+        f"create table if not exists known as select author_id from read_parquet('{ref_root}/authors/*.parquet')"
     )
     con.execute(
-        'create or replace temp table src_oa as select source_id, is_oa '
+        'create table if not exists src_oa as select source_id, is_oa '
         f"from read_parquet('{ref_root}/sources/*.parquet')"
     )
     # Institution IDs not in the built institutions table (stale IDs; user: null them) are removed from each
@@ -1285,24 +1304,24 @@ def write_works(
             lambda i: not list_contains(getvariable('orphan_insts'), i.id)))) as authorships)
         from a where not is_xpac""")
     con.execute(
-        "create or replace temp table yrs as select oa_id(id, 'W', 'work id') work_id, "
+        "create table if not exists yrs as select oa_id(id, 'W', 'work id') work_id, "
         'publication_year::usmallint publication_year from w'
     )
     con.execute(
-        f"create or replace temp table known_kw as select keyword_id from read_parquet('{ref_root}/keywords/*.parquet')"
+        f"create table if not exists known_kw as select keyword_id from read_parquet('{ref_root}/keywords/*.parquet')"
     )
     con.execute(
-        'create or replace temp table known_inst as select institution_id '
+        'create table if not exists known_inst as select institution_id '
         f"from read_parquet('{ref_root}/institutions/*.parquet')"
     )
     # Per work: the orphan author IDs (not in the built authors table). Their rows are dropped from
     # works_authorships, so works' author, institution, and country counts skip them too.
-    con.execute("""create or replace temp table orph as
+    con.execute("""create table if not exists orph as
         select id, list(distinct aid order by aid) orph_aids
         from (select id, s.author.id aid from (select id, unnest(authorships) s from w) where s.author.id is not null) x
         anti join known k on oa_id(x.aid, 'A', 'author id') = k.author_id group by id""")
     # References kept: targets in the build, minus self-references and the deleted-work placeholder.
-    con.execute(f"""create or replace temp view refs as
+    con.execute(f"""create table if not exists refs as
         select r.work_id, r.work_publication_year, r.referenced_work_id,
           y.publication_year referenced_work_publication_year
         from (select oa_id(id, 'W', 'work id') work_id, publication_year::usmallint work_publication_year,
@@ -1310,50 +1329,71 @@ def write_works(
               from (select id, publication_year, unnest(referenced_works) rr from w)) r
         join yrs y on y.work_id = r.referenced_work_id
         where r.referenced_work_id <> {PLACEHOLDER_WORK} and r.referenced_work_id <> r.work_id""")
-    con.execute('create or replace temp table nref as select work_id, count(*) n from refs group by work_id')
-    row = con.execute(
-        f"""select (select count(*) from a where is_xpac), (select count(*) from w),
-        (select count(*) from w where primary_topic is distinct from topics[1]),
-        (select count(*) from w where apc_paid.value <> floor(apc_paid.value)
-            or apc_paid.value_usd <> floor(apc_paid.value_usd)),
-        (select sum(len(orph_aids)) from orph),
-        (select count(*) from (select unnest(authorships) s from w) where s.author.id is null),
-        (select count(*) from (select id, unnest(referenced_works) r from w) where r = id),
-        (select count(*) from (select unnest(referenced_works) r from w) where r = 'https://openalex.org/W{PLACEHOLDER_WORK}')"""
-    ).fetchall()  # fetchall, not fetchone: an unfinished result blocks the connection
-    xpac, n, topic_ne, apc_frac, orphans, null_authors, self_refs, placeholders = row[0]
-    log.info('works: %s non-xpac works, %s xpac works skipped', f'{n:,}', f'{xpac:,}')
-    log.info(
-        'works dropped: %s authorships with no author ID, %s orphan author IDs (summed per work), '
-        '%s self-references, %s placeholder references',
-        *(f'{v or 0:,}' for v in (null_authors, orphans, self_refs, placeholders)),
-    )
-    corr_ne = con.execute("""select id from w where list_sort(list_distinct(corresponding_author_ids)) is distinct from
-        list_sort(list_distinct(list_transform(list_filter(authorships, lambda s: s.is_corresponding
-          and s.author.id is not null), lambda s: s.author.id)))""").fetchall()
-    log.info(
-        'works: corresponding_author_ids dropped; differs from is_corresponding in %s works: %s',
-        len(corr_ne),
-        [r[0] for r in corr_ne[:20]],
-    )
-    dangling = con.execute("""select (select count(*) from
-          (select oa_id(volume.id, 'W', 'volume id') v from w where volume.id is not null) x
-          anti join yrs y on x.v = y.work_id),
-        (select count(*) from (select unnest(corresponding_institution_ids) c from w) x
-          anti join known_inst k on oa_id(x.c, 'I', 'institution id') = k.institution_id),
-        (select count(*) from (select substr(unnest(keywords).id, 31) kid from w) x
-          anti join known_kw k on x.kid = k.keyword_id)""").fetchall()[0]
-    log.info(
-        'works: %s volume IDs outside the build nulled, %s dangling corresponding institutions dropped, '
-        '%s keyword rows with a slug not in keywords dropped',
-        *(f'{v:,}' for v in dangling),
-    )
-    if topic_ne or apc_frac:
-        raise SystemExit(
-            f'works: primary_topic differs from topics[1] in {topic_ne:,} rows and {apc_frac:,} apc_paid values are '
-            'fractional; re-check the spec.'
+    con.execute('create table if not exists nref as select work_id, count(*) n from refs group by work_id')
+    # One-time checks and counts; a resumed run skips them only if the failed run got past them (marker table).
+    if not con.execute("select count(*) from duckdb_tables() where table_name = 'checks_done'").fetchall()[0][0]:
+        row = con.execute(
+            f"""select (select count(*) from a where is_xpac), (select count(*) from w),
+            (select count(*) from w where primary_topic is distinct from topics[1]),
+            (select count(*) from w where apc_paid.value <> floor(apc_paid.value)
+                or apc_paid.value_usd <> floor(apc_paid.value_usd)),
+            (select sum(len(orph_aids)) from orph),
+            (select count(*) from (select unnest(authorships) s from w) where s.author.id is null),
+            (select count(*) from (select id, unnest(referenced_works) r from w) where r = id),
+            (select count(*) from (select unnest(referenced_works) r from w) where r = 'https://openalex.org/W{PLACEHOLDER_WORK}')"""
+        ).fetchall()  # fetchall, not fetchone: an unfinished result blocks the connection
+        xpac, n, topic_ne, apc_frac, orphans, null_authors, self_refs, placeholders = row[0]
+        log.info('works: %s non-xpac works, %s xpac works skipped', f'{n:,}', f'{xpac:,}')
+        log.info(
+            'works dropped: %s authorships with no author ID, %s orphan author IDs (summed per work), '
+            '%s self-references, %s placeholder references',
+            *(f'{v or 0:,}' for v in (null_authors, orphans, self_refs, placeholders)),
         )
-    return {name: _write_sql(con, name, sql, out_root, snapshot, 'works') for name, sql in works_sql().items()}
+        corr_ne = con.execute("""select id from w
+            where list_sort(list_distinct(corresponding_author_ids)) is distinct from
+            list_sort(list_distinct(list_transform(list_filter(authorships, lambda s: s.is_corresponding
+              and s.author.id is not null), lambda s: s.author.id)))""").fetchall()
+        log.info(
+            'works: corresponding_author_ids dropped; differs from is_corresponding in %s works: %s',
+            len(corr_ne),
+            [r[0] for r in corr_ne[:20]],
+        )
+        dangling = con.execute("""select (select count(*) from
+              (select oa_id(volume.id, 'W', 'volume id') v from w where volume.id is not null) x
+              anti join yrs y on x.v = y.work_id),
+            (select count(*) from (select unnest(corresponding_institution_ids) c from w) x
+              anti join known_inst k on oa_id(x.c, 'I', 'institution id') = k.institution_id),
+            (select count(*) from (select substr(unnest(keywords).id, 31) kid from w) x
+              anti join known_kw k on x.kid = k.keyword_id)""").fetchall()[0]
+        log.info(
+            'works: %s volume IDs outside the build nulled, %s dangling corresponding institutions dropped, '
+            '%s keyword rows with a slug not in keywords dropped',
+            *(f'{v:,}' for v in dangling),
+        )
+        if topic_ne or apc_frac:
+            raise SystemExit(
+                f'works: primary_topic differs from topics[1] in {topic_ne:,} rows and {apc_frac:,} apc_paid values '
+                'are fractional; re-check the spec.'
+            )
+        con.execute('create table checks_done as select 1 ok')
+    # DuckDB misestimates `w` (~12K rows for 18.6M in the 100-file test) and flips `w LEFT JOIN nref/yrs/src_oa`
+    # into RIGHT joins that hash all of `w` with its nested lists (41+ GiB at 100 files). The works SQL is written
+    # big-left, small-right, so keep joins as written.
+    con.execute("set disabled_optimizers = 'join_order,build_side_probe_side'")
+    manifests = {}
+    try:
+        for name, sql in works_sql().items():
+            done = out_root / name / '_manifest.json'  # tables are swapped in whole, so a manifest means complete
+            if resume and done.exists():
+                manifests[name] = json.loads(done.read_text())
+                log.info('works: %s already written, skipped', name)
+            else:
+                manifests[name] = _write_sql(con, name, sql, out_root, snapshot, 'works')
+    finally:
+        con.close()
+    for f in (db, db.with_name(db.name + '.wal')):  # success only: a failed run keeps it for resuming
+        f.unlink(missing_ok=True)
+    return manifests
 
 
 ENTITIES: dict[str, tuple[list[str], Callable[[dict[str, pa.Table], int], dict[str, pa.Table]]]] = {

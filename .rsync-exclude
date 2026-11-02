@@ -9,3 +9,5 @@ __pycache__/
 _old/
 data/
 notebooks/dask-worker-space/
+*.pq
+*.parquet

@@ -1,5 +1,21 @@
 # Progress
 
+## 2026-11-01
+- Full works write running into `oct-2026/` (launcher `~/scratch/run_works_full75.sh`, DuckDB 75 GB in an 85 GiB
+  no-swap scope; log `works-full75c.log`); 9 of 18 tables written and spot-checked against the live API
+  (`~/scratch/spot_check_works.py`). Setup: 326,989,410 non-xpac works, 137,776,075 xpac skipped.
+- The Oct 30 gate failed on a false positive: it compared raw list totals to rows written without the 108 dangling
+  corresponding institutions the converter drops on purpose. Fixed in `~/scratch/gate_works_full.py` (scratch only).
+- Root cause of the works OOMs: DuckDB misestimated `w` (~12K rows for 18.6M) and flipped `w LEFT JOIN
+  nref/yrs/src_oa` into RIGHT joins that hashed all of `w`. `write_works` now disables `join_order` and
+  `build_side_probe_side`; 100-file peak fell from 58 to 24 GiB, output md5-identical.
+- `write_works` helper tables now live in a DuckDB file (`works_helper_db()`, keyed by inputs), with
+  `preserve_insertion_order` off, 8 threads, and allocator background threads. A failed run keeps the file and
+  the next run resumes, skipping finished output tables (20-file kill-and-resume test queued after the full run).
+- Yoda limits: the user slice cap is 50 GB (raised to 90 GB for this run) and `systemd-oomd` kills user
+  sessions above 50% memory pressure (disabled for user 1006 with `ManagedOOMMemoryPressure=auto`). Both are
+  runtime-only; restore after the run.
+
 ## 2026-10-30
 - Queued on Yoda (`~/scratch/run_works_full_dry.sh`, log `works_full_gate.log`): when the final 100-file works rerun
   ends, `gate_works_full.py` checks its log (every `_bad` 0, formulas equal, md5 identical) and only then starts the
