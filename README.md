@@ -23,6 +23,6 @@ Updated: Jan 16, 2026
 
 ## Development
 - `make setup` once (installs deps, enables the pre-commit hook), `make check` for lint/types/tests.
-- Code runs on the processing server, not locally: `make sync` rsyncs the repo there.
+- Code runs on the processing server, not locally: `make sync` pushes committed `main` to its git checkout.
 - Optimized Parquet from the OpenAlex Parquet snapshot: `uv run python -m preprocessing.optimize_parquet --dry-run <scratch>`,
   then without `--dry-run` to write `parquet-files/<month>/` (one folder per table, with `_metadata` and `_manifest.json`).

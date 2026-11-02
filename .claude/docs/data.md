@@ -2,9 +2,13 @@
 
 ## Where things live
 - Run host: Yoda only (`ssh yoda`). Nothing data-related runs on the Mac.
-- Code on Yoda: `/home/ssikdar/PycharmProjects/openalex` (rsync target, no git). Push with `make sync`
-  (excludes in `.rsync-exclude`; no `--delete`, so Yoda-only files like `data/`, `test.pq` survive).
-  Sync before every run.
+- Code on Yoda: `/home/ssikdar/PycharmProjects/openalex`, a git checkout that accepts pushes
+  (`receive.denyCurrentBranch updateInstead`). `make sync` pushes committed `main` there, so commit first. Git
+  refuses the push if Yoda has uncommitted edits, so they are never overwritten. Untracked and ignored files
+  (`data/`, `test.pq`, `.venv/`) are left alone. Sync before every run.
+- Edited on Yoda by mistake (`make yoda-diff` shows it): on Yoda, `git switch -c yoda/<date>`, `git add <paths>`,
+  `git commit`, `git switch main`; on the Mac, `git fetch yoda`, `git merge yoda/<date>` (or cherry-pick the parts
+  to keep), `make sync`, then `git push yoda --delete yoda/<date>`.
 - `BASEDIR` is picked by hostname at the top of `preprocessing/flatten_openalex_files.py`
   (`yoda` -> `/data/shared/OpenAlex`, `quartz*` -> IU HPC path). `MONTH` (e.g. `mar-2026`) is hard-coded there.
   - Snapshot: `$BASEDIR/openalex-snapshot/data/<entity>/updated_date=*/part_*.gz` + `manifest`.

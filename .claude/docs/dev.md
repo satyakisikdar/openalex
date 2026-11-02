@@ -5,7 +5,7 @@
 - Tasks via `Makefile`:
   - `make setup`: `uv sync` + `git config core.hooksPath .githooks` (local git config, run once per clone).
   - `make check`: `ruff check`, `ruff format --check`, `ty check`, `pytest`. Runs locally (no data touched).
-  - `make sync`: rsync code to Yoda (see `data.md`).
+  - `make sync`: git push committed `main` to Yoda's checkout; `make yoda-diff`: Yoda's uncommitted edits (see `data.md`).
 - `.githooks/pre-commit` runs `make check`. Never `--no-verify`. Fix the failure instead.
 
 ## Code standards

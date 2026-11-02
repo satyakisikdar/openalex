@@ -7,9 +7,14 @@ check:
 setup:
 	uv sync
 	git config core.hooksPath .githooks
+	git remote get-url yoda >/dev/null 2>&1 || git remote add yoda yoda:/home/ssikdar/PycharmProjects/openalex
 
-# Push code to Yoda (no --delete: Yoda holds outputs we must never remove).
+# Push committed main to Yoda's checkout. Git refuses if Yoda has uncommitted edits (see .claude/docs/data.md).
 sync:
-	rsync -avz --exclude-from=.rsync-exclude ./ yoda:/home/ssikdar/PycharmProjects/openalex/
+	git push yoda main
 
-.PHONY: check setup sync
+# Show uncommitted edits on Yoda.
+yoda-diff:
+	ssh yoda 'cd /home/ssikdar/PycharmProjects/openalex && git status --short && git diff'
+
+.PHONY: check setup sync yoda-diff

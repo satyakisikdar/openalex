@@ -9,8 +9,10 @@ those into **optimized** Parquet (numeric IDs, tight types, brotli) with
 ## Non-negotiables
 - **Nothing data-related runs on this Mac.** Snapshots, Parquet outputs, and all databases live on Yoda
   (`ssh yoda`, repo at `yoda:/home/ssikdar/PycharmProjects/openalex`, data at `/data/shared/OpenAlex`).
-  Edit locally, `make sync` (rsync), run there. Only `make check` (lint/types/tests, no data) runs locally.
-- The Mac git checkout is the source of truth; Yoda's copy is an rsync target with no git history.
+  Edit locally, commit, `make sync` (git push to Yoda's checkout), run there. Only `make check` (lint/types/tests,
+  no data) runs locally.
+- The Mac git checkout is the source of truth. Yoda's checkout only receives pushes, and `make sync` refuses while
+  Yoda has uncommitted edits. Edited on Yoda by mistake: reconcile with git (see `data.md`).
 - `make check` (ruff, ty, pytest) must pass before every commit via the pre-commit hook. Never `--no-verify`.
 - Every output write is crash-safe and re-runnable: build `<name>.partial-<pid>`, then atomic replace.
 - Never commit data, logs, or secrets. Never delete outputs on Yoda without asking.
