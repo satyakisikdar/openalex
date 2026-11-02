@@ -17,7 +17,7 @@ those into **optimized** Parquet (numeric IDs, tight types, brotli) with
 - Every output write is crash-safe and re-runnable: build `<name>.partial-<pid>`, then atomic replace.
 - Never commit data, logs, or secrets. Never delete outputs on Yoda without asking.
 - **Yoda disk is tight:** `/data` was 82% full on 2026-10-29 (1.1 TB free), 67% (2.0 TB free of 5.7 TB) on 2026-10-30
-  with the raw snapshot complete (works alone is 696 GB). Run `df -h /data` and estimate output size before any big write;
+  with the raw snapshot complete (works alone is 696 GB), 66% (1.9 TB free) on 2026-11-01 with `oct-2026` built (131 GB). Run `df -h /data` and estimate output size before any big write;
   stop and ask if it would leave under ~200 GB free. Freeing space (old snapshots) is the user's call.
 
 ## Before a task, read every guide whose trigger matches

@@ -1,6 +1,8 @@
 # Progress
 
 ## 2026-11-01
+- `tests/test_optimize_builders.py::test_write_works_resumes_after_a_crash` ports the 20-file resume test to
+  synthetic data (crash after 3 tables, resume, md5-identical to a fresh run). README now documents optimized Parquet.
 - `make sync` is now `git push yoda main` into Yoda's git checkout (`updateInstead`), refused while Yoda has
   uncommitted edits; replaces rsync after a Yoda-side session's doc edits nearly got overwritten.
 - **Works written:** all 18 tables in `oct-2026/` (`oct-2026/` now 71 tables, README regenerated), exit 0 at
