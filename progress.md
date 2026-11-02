@@ -3,9 +3,11 @@
 ## 2026-11-01
 - `make sync` is now `git push yoda main` into Yoda's git checkout (`updateInstead`), refused while Yoda has
   uncommitted edits; replaces rsync after a Yoda-side session's doc edits nearly got overwritten.
-- Full works write running into `oct-2026/` (launcher `~/scratch/run_works_full75.sh`, DuckDB 75 GB in an 85 GiB
-  no-swap scope; log `works-full75c.log`); 9 of 18 tables written and spot-checked against the live API
-  (`~/scratch/spot_check_works.py`). Setup: 326,989,410 non-xpac works, 137,776,075 xpac skipped.
+- **Works written:** all 18 tables in `oct-2026/` (`oct-2026/` now 71 tables, README regenerated), exit 0 at
+  19:31 after 1 h 59 min (launcher `~/scratch/run_works_full75.sh`, DuckDB 75 GB in an 85-88 GiB no-swap scope,
+  peak 88 GiB; log `works-full75c.log`). 326,989,410 non-xpac works (137,776,075 xpac skipped); e.g. authorships
+  945,398,420, concepts 2,983,557,411, references 2,886,600,388 rows. Spot-checked across all 18 tables against
+  the live API (`~/scratch/spot_check_works.py`): rows consistent, `num_references` equals reference rows.
 - The Oct 30 gate failed on a false positive: it compared raw list totals to rows written without the 108 dangling
   corresponding institutions the converter drops on purpose. Fixed in `~/scratch/gate_works_full.py` (scratch only).
 - Root cause of the works OOMs: DuckDB misestimated `w` (~12K rows for 18.6M) and flipped `w LEFT JOIN
@@ -13,10 +15,10 @@
   `build_side_probe_side`; 100-file peak fell from 58 to 24 GiB, output md5-identical.
 - `write_works` helper tables now live in a DuckDB file (`works_helper_db()`, keyed by inputs), with
   `preserve_insertion_order` off, 8 threads, and allocator background threads. A failed run keeps the file and
-  the next run resumes, skipping finished output tables (20-file kill-and-resume test queued after the full run).
-- Yoda limits: the user slice cap is 50 GB (raised to 90 GB for this run) and `systemd-oomd` kills user
-  sessions above 50% memory pressure (disabled for user 1006 with `ManagedOOMMemoryPressure=auto`). Both are
-  runtime-only; restore after the run.
+  the next run resumes, skipping finished output tables. 20-file test (`~/scratch/run_resume_test20.sh`): fresh
+  and SIGKILL-then-resume runs md5-identical to the baseline; resume skipped the 4 finished tables.
+- Yoda limits: the user slice cap is 50 GB and `systemd-oomd` kills user sessions above 50% memory pressure for
+  20 s. Both were lifted for this run (90 GB, `ManagedOOMMemoryPressure=auto`) and restored afterwards.
 
 ## 2026-10-30
 - Queued on Yoda (`~/scratch/run_works_full_dry.sh`, log `works_full_gate.log`): when the final 100-file works rerun
