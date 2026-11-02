@@ -1,8 +1,12 @@
 """Builders on one synthetic raw row per entity: outputs match the declared schemas and drop rules hold."""
 
+import hashlib
+import logging
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pyarrow as pa
+import pytest
 
 from preprocessing import optimize_parquet as op
 
@@ -558,7 +562,8 @@ def _authorship(aid: int | None, insts: list[int], order_name: str, countries: l
     }
 
 
-def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
+def _works_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    """Raw works (two kept, one xpac) and the built reference tables that write_works reads."""
     import pyarrow.parquet as pq
 
     m1 = {
@@ -609,10 +614,17 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     }.items():
         (tmp_path / 'ref' / name).mkdir()
         pq.write_table(table, tmp_path / 'ref' / name / 'part-00000.parquet')
+    return tmp_path / 'raw', tmp_path / 'ref'
+
+
+def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
+    import pyarrow.parquet as pq
+
+    raw, ref = _works_inputs(tmp_path)
     monkeypatch.setitem(op.DUCKDB_CONFIG, 'temp_directory', str(tmp_path / 'tmp'))
     monkeypatch.setitem(op.DUCKDB_CONFIG, 'memory_limit', '1GB')
     out = tmp_path / 'oct-2026'
-    manifests = op.write_works(out, 2027, '2026-10-14', raw_root=tmp_path / 'raw', ref_root=tmp_path / 'ref')
+    manifests = op.write_works(out, 2027, '2026-10-14', raw_root=raw, ref_root=ref)
     assert set(manifests) == {n for n in op.SCHEMAS if n.startswith('works')}
     w = pq.read_table(out / 'works').to_pylist()
     assert [r['work_id'] for r in w] == [1, 2]  # xpac work 3 skipped
@@ -664,6 +676,43 @@ def test_write_works_duckdb_path(tmp_path, monkeypatch) -> None:
     }
     assert pq.read_table(out / 'works_sustainable_development_goals').to_pylist()[0]['sdg_id'] == 3
     assert pq.read_table(out / 'works_study_designs').to_pylist()[0]['study_design'] == 'case-report'
+
+
+def test_write_works_resumes_after_a_crash(tmp_path, monkeypatch, caplog) -> None:
+    """A run that dies after 3 tables keeps its helper DB; the rerun skips them and matches a fresh run."""
+    raw, ref = _works_inputs(tmp_path)
+    tmp = tmp_path / 'tmp'
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'temp_directory', str(tmp))
+    monkeypatch.setitem(op.DUCKDB_CONFIG, 'memory_limit', '1GB')
+
+    def md5s(root: Path) -> dict[str, str]:
+        return {str(p.relative_to(root)): hashlib.md5(p.read_bytes()).hexdigest() for p in root.rglob('*.parquet')}
+
+    fresh = tmp_path / 'fresh'
+    op.write_works(fresh, 2027, '2026-10-14', raw_root=raw, ref_root=ref)
+    assert not list(tmp.glob('works-*'))  # success removes the helper DB
+
+    real, written = op._write_sql, []
+
+    def crash_after_3(con, name, *args, **kwargs):
+        if len(written) == 3:
+            raise RuntimeError('simulated crash')
+        written.append(name)
+        return real(con, name, *args, **kwargs)
+
+    out = tmp_path / 'resumed'
+    monkeypatch.setattr(op, '_write_sql', crash_after_3)
+    with pytest.raises(RuntimeError, match='simulated crash'):
+        op.write_works(out, 2027, '2026-10-14', raw_root=raw, ref_root=ref)
+    assert op.works_helper_db(raw, ref, out).exists()  # a failed run keeps it for resuming
+
+    monkeypatch.setattr(op, '_write_sql', real)
+    with caplog.at_level(logging.INFO):
+        op.write_works(out, 2027, '2026-10-14', raw_root=raw, ref_root=ref)
+    assert 'resuming from' in caplog.text
+    assert all(f'{name} already written, skipped' in caplog.text for name in written)
+    assert md5s(out) == md5s(fresh) and md5s(out)
+    assert not list(tmp.glob('works-*'))
 
 
 def test_build_keywords() -> None:
